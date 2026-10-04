@@ -231,13 +231,13 @@
     if (!groups.size) return empty();
     return [...groups.values()].sort((a, b) => b.total - a.total).map((g) => `
       <div class="sgroup"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
-        <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="1">Bump oldest</button></div>
+        <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="all">Bump oldest</button></div>
         <div class="chips">${g.rows.map((r) => {
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
-          return `<button class="chip ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1">
-            <span class="c1">${esc(ono(r.o))} × ${r.rem}</span>
+          return `<div role="button" class="chip ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
+            <span class="c1">${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
             <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + packLabel(r.it.pack) : ''}</span>
-            ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</button>`;
+            ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</div>`;
         }).join('')}</div></div>`).join('');
   }
   // ---- Make line (window): one row per unit, grouped by item, oldest order first.
@@ -288,16 +288,17 @@
             <span class="mords">${x.parts.map((r) => `<span class="pill ${r.last ? 'badge-online' : 'badge-walkin'}">${esc(ono(r.o))}${r.n > 1 ? ' ×' + r.n : ''}${r.last ? ' · LAST' : ''}</span>`).join(' ')}</span></span>
             ${timerHtml(x.parts[0].o.received_at, ctx.th)}</button>`).join('');
       } else {
-        const one = (r, k) => `<button class="mrow ${r.waiting ? 'waiting' : ''} ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" ${r.waiting ? 'data-force="1"' : ''}>
+        const one = (r) => `<button class="mrow ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="all">
+            ${r.n > 1 ? `<span class="qty qtap mq" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" title="Tap to clear 1"><span>${r.n}</span><em>−1</em></span>` : '<span class="qty mq"><span>1</span></span>'}
             <span class="mono">${esc(ono(r.o))}${r.o.customer_name ? `<small>${esc(r.o.customer_name)}</small>` : ''}</span>
-            <span class="mbody">${detail(r.it)}${r.waiting ? `<span class="pill badge-walkin">cooking · ${stName(r.it)}</span>` : ''}${!r.waiting && r.last && k === r.n - 1 ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}</span>
+            <span class="mbody">${detail(r.it)}${r.last ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}</span>
             ${timerHtml(r.o.received_at, ctx.th)}</button>`;
-        rows = [...g.ready, ...g.cooking].flatMap((r) => Array.from({ length: r.n }, (_, k) => one(r, k))).join('');
+        rows = g.ready.map(one).join('');
       }
       const first = g.ready[0] || g.cooking[0];
       return `<div class="mgroup"><div class="mhead"><span class="n">${g.nReady}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}
           <small class="muted" style="display:block;font-weight:600">${g.nReady} ready${g.nCooking ? ` · ${g.nCooking} cooking` : ''}</small></span>
-        ${g.nReady ? `<button class="btn sm ok" data-act="bump" data-item="${first.it.id}" data-stage="window" data-n="1">Finish oldest</button>` : ''}</div>
+        ${g.nReady ? `<button class="btn sm ok" data-act="bump" data-item="${first.it.id}" data-stage="window" data-n="all">Finish oldest</button>` : ''}</div>
         <div class="mrows">${rows}</div></div>`;
     }).join('') + comingLine;
   }
@@ -348,7 +349,7 @@
     K.$('.topbar').onclick = (e) => {
       const b = e.target.closest('[data-top]'); if (!b) return;
       const a = b.dataset.top;
-      if (a === 'fs') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); }
+      if (a === 'fs') { const on = !document.fullscreenElement; on ? document.documentElement.requestFullscreen?.().catch(() => {}) : document.exitFullscreen(); ss('kds-fs', on ? '1' : '0'); }
       if (a === 'settings') settingsDrawer(ctx);
       if (a === 'recall') recallDrawer(ctx);
       if (a === 'avail') location.hash = `#/availability${station ? '?station=' + station.id : ''}`;
@@ -530,15 +531,28 @@
   }
 
   let started = false;
+  const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch (_) { return null; } };
   function startOverlay(ctx) {
     if (started) return;
+    if (ss('kds-started')) {                       // already started in this tab (e.g. auto-update reload)
+      started = true; K.keepAwake();
+      const bar = document.createElement('div'); bar.className = 'livebar soundbar';
+      bar.innerHTML = '<span>🔔 Screen updated — tap anywhere to turn the chime back on</span>';
+      document.body.appendChild(bar);
+      const wake = () => {
+        K.unlockAudio(); K.keepAwake(); bar.remove();
+        if (ss('kds-fs') === '1' && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+      };
+      document.addEventListener('pointerdown', wake, { once: true, capture: true });
+      return;
+    }
     const o = document.createElement('div'); o.className = 'start';
     o.innerHTML = `<h2>${esc(K.$('.topbar .title').textContent)}</h2><div class="muted">Tap to start this screen (turns on the new-order chime and keeps the screen awake)</div>
       <div class="row"><button class="btn primary" data-go="1">▶ Start screen</button><button class="btn" data-go="fs">Start full screen</button></div>`;
     o.onclick = (e) => {
       const g = e.target.closest('[data-go]'); if (!g) return;
-      started = true; K.unlockAudio(); K.keepAwake();
-      if (g.dataset.go === 'fs') document.documentElement.requestFullscreen?.().catch(() => {});
+      started = true; K.unlockAudio(); K.keepAwake(); ss('kds-started', '1');
+      if (g.dataset.go === 'fs') { ss('kds-fs', '1'); document.documentElement.requestFullscreen?.().catch(() => {}); }
       o.remove();
     };
     document.body.appendChild(o);
@@ -550,6 +564,7 @@
   K.routes.front = (r) => screen(r, 'front');
   const onData = () => { if (K.screenCtx && K.$('#wrap')) drawBoard(K.screenCtx); };
   K.routes.station.onData = K.routes.window.onData = K.routes.front.onData = onData;
+  K.routes.station.live = K.routes.window.live = K.routes.front.live = true;
 
   // customer-facing pickup board (no buttons)
   K.routes.board = function () {
@@ -562,6 +577,7 @@
     K.routes.board.onData();
   };
   let boardSeen = null;
+  K.routes.board.live = true;
   K.routes.board.onData = function () {
     const prep = K.$('#pb-prep'), ready = K.$('#pb-ready'); if (!prep) return;
     const live = st.orders.filter((o) => ['new', 'preparing', 'at_window', 'ready'].includes(o.status)).sort((a, b) => new Date(a.received_at) - new Date(b.received_at));

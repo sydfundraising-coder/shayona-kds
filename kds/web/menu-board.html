@@ -99,6 +99,7 @@
 <script src="js/vendor/supabase.js"></script>
 <script src="js/demo-menu.js"></script>
 <script src="js/menu-feed.js"></script>
+<script src="js/auto-update.js"></script>
 </head>
 <body>
 <div class="stage">
@@ -238,9 +239,9 @@ async function load(){
     }));
     const secNames=Object.keys(groups).sort((a,b)=>orderIndex(a)-orderIndex(b)||a.localeCompare(b));
     const total=Object.values(groups).reduce((n,arr)=>n+arr.length,0);
-    if(!total){cols.className='cols';cols.innerHTML='<div class="empty">Today\'s menu is being prepared.</div>';return;}
+    if(!total){window._lastBoard=null;cols.className='cols';cols.innerHTML='<div class="empty">Today\'s menu is being prepared.</div>';return;}
     cols.className='cols'+(total>40?' dense xdense':(total>18?' dense':''));
-    cols.innerHTML=secNames.map(sec=>`
+    const html=secNames.map(sec=>`
       <div class="cat"><h2>${sec}</h2>
         ${groups[sec].sort((a,b)=>titleCase(a.name).localeCompare(titleCase(b.name))).map(it=>{
           const v=it.variations[0]||{};
@@ -255,11 +256,14 @@ async function load(){
             + (desc?`<div class="desc">${esc(desc)}</div>`:'');
         }).join('')}
       </div>`).join('');
+    const changed = html!==window._lastBoard; window._lastBoard=html;
+    if(changed) cols.innerHTML=html;           // only redraw when something actually changed (no flicker)
     document.getElementById('stamp').textContent='Updated '+new Date(data.updatedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
     // custom header banner (set from the control panel)
     const sp=document.getElementById('special'), bt=(data.banner||'').trim();
     if(bt){ sp.textContent=bt; sp.hidden=false; } else { sp.hidden=true; }
-    autofit(cols);
+    if(changed || window._lastBanner!==bt) autofit(cols);
+    window._lastBanner=bt;
   }catch(e){/* keep last good board */}
 }
 
@@ -299,8 +303,8 @@ async function pollNotice(){
     }else{ el.hidden=true; }
   }catch(e){/* keep last state */}
 }
-pollNotice();setInterval(pollNotice,12000);
-load();setInterval(load,20000);
+pollNotice();setInterval(pollNotice,8000);
+load();setInterval(load,10000);
 </script>
 </body>
 </html>

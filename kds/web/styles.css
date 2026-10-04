@@ -334,3 +334,9 @@ table.t tr:hover td{background:var(--card2)}
 .badge-di{background:#38bdf8;color:#001a26}
 .pack{font-size:.9em;padding:4px 10px}
 .pack.BOX{background:#fb923c;color:#1a0c00;box-shadow:0 0 0 2px rgba(251,146,60,.35)}
+/* live-update banner */
+.livebar{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:90;display:flex;align-items:center;gap:12px;background:var(--panel);color:var(--text);border:1px solid var(--accent);box-shadow:var(--shadow);padding:10px 14px;border-radius:12px;font-weight:700;max-width:calc(100vw - 32px)}
+.livebar.soundbar{top:70px;bottom:auto;border-color:var(--info);font-weight:600;font-size:.9em;pointer-events:none;opacity:.95}
+.mrow{grid-template-columns:auto auto 1fr auto}
+.qty.mq{font-size:1.2em}
+.qty.qtap.cq{display:inline-flex;min-width:2.4em;height:2.2em;font-size:.95em;vertical-align:middle;margin-left:4px;background:var(--bg)}
