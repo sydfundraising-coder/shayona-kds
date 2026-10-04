@@ -206,7 +206,8 @@
       <h2 style="margin-top:0">Square connection</h2>
       <div class="row" style="flex-wrap:wrap"><button class="btn" data-sq="test">Test connection</button>
       <button class="btn" data-sq="catalog">Sync menu from Square</button>
-      <button class="btn" data-sq="orders">Pull last 60 min of orders</button></div>
+      <button class="btn" data-sq="orders">Pull last 60 min of orders</button>
+      <button class="btn" data-sq="today">Pull all of today's orders</button></div>
       <p class="muted" style="font-size:.88em">Orders arrive automatically through the Square webhook. "Pull orders" is a safety net if the internet dropped. The menu re-syncs automatically when you change it in Square.</p>
       <div id="sqout" class="muted"></div>
       <h2>End of day</h2>
@@ -220,6 +221,12 @@
         if (a === 'test') { res = await api.testSquare(); out.innerHTML = `✓ Connected to <b>${esc(res.location)}</b> (${esc(res.business || '')}, ${esc(res.timezone || '')})`; }
         if (a === 'catalog') { res = await api.syncCatalog(); out.textContent = `✓ Synced ${res.variations} items in ${res.categories} categories`; await K.loadConfig(); }
         if (a === 'orders') { res = await api.syncOrders(60); out.textContent = `✓ ${res.ingested} order(s) pulled in`; K.reload(0); }
+        if (a === 'today') {
+          const mid = new Date(); mid.setHours(0, 0, 0, 0);
+          const mins = Math.max(1, Math.ceil((Date.now() - mid) / 60e3));
+          if (!(await K.confirm("Pull all of today's orders?", `Brings in every Square order since midnight (about ${Math.round(mins / 60)} hours). <b>Orders already served will also appear on the kitchen screens</b> — use <b>Close all open orders</b> afterwards to clear the old ones.`, 'Pull orders'))) { out.textContent = ''; return; }
+          res = await api.syncOrders(mins); out.textContent = `✓ ${res.ingested} order(s) pulled in since midnight`; K.reload(0);
+        }
         if (a === 'close') {
           if (!(await K.confirm('Close all open orders?', 'Everything still on the kitchen, window and front screens will be cleared.', 'Close all', true))) { out.textContent = ''; return; }
           res = await api.closeOpenOrders(0); out.textContent = `✓ Closed ${res} order(s)`; K.reload(0);
