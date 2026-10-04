@@ -197,6 +197,10 @@
     const list = (k) => esc((s[k] || []).join(', '));
     K.$('#tab').innerHTML = `<div class="card" style="max-width:720px">
       <div class="field"><label>Square location ID (Shayona Cafe)</label><input data-k="square_location_id" data-type="str" value="${esc(s.square_location_id || '')}"></div>
+      <h2>End of day</h2>
+      <div class="field"><label>Push all outstanding orders through to picked up at (every night)</label>
+        <input type="time" data-k="auto_close_time" data-type="str" value="${esc(s.auto_close_time || '')}" style="max-width:160px">
+        <div class="muted" style="font-size:.85em;margin-top:4px">Checked every 15 minutes between this time and 5 am. Clear the time to turn it off.${s.last_auto_close ? ` Last run: ${esc(new Date(s.last_auto_close.at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))} — ${s.last_auto_close.orders} order(s) closed.` : ''}</div></div>
       <h2>Take away or dine-in</h2>
       <div class="field"><label>Modifier/note words that mean TAKE AWAY (comma separated)</label><input data-k="takeaway_keywords" data-type="list" value="${list('takeaway_keywords')}"></div>
       <div class="field"><label>Words that mean DINE-IN</label><input data-k="plate_keywords" data-type="list" value="${list('plate_keywords')}"></div>
@@ -282,32 +286,35 @@
   K.routes.reports = function (r) {
     if (api.role !== 'admin') { app().innerHTML = pageTop('Reports') + '<div class="page"><h2>Admins only</h2></div>'; return; }
     K.applyTheme(K.prefs('global', { theme: 'dark' }));
+    const tab0 = r.q.get('tab') || 'sales';
     const today = new Date(); const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     app().innerHTML = pageTop('Reports') + `<div class="page">
       <div class="row" style="flex-wrap:wrap">
-        <div class="seg" id="rng"><button data-r="today" class="on">Today</button><button data-r="yesterday">Yesterday</button><button data-r="7">Last 7 days</button><button data-r="30">Last 30 days</button></div>
+        <div class="seg" id="rng"><button data-r="today" class="on">Today</button><button data-r="yesterday">Yesterday</button><button data-r="7">Last 7 days</button><button data-r="30">Last 30 days</button><button data-r="month">This month</button><button data-r="lastmonth">Last month</button></div>
         <input type="date" id="rf" value="${ymd(today)}"><span class="muted">to</span><input type="date" id="rt" value="${ymd(today)}">
-        <select id="rs"><option value="">All stations</option>${st.cfg.stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+        <span id="kfil" class="row" style="flex-wrap:wrap"><select id="rs"><option value="">All stations</option>${st.cfg.stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
         <select id="ro"><option value="">Walk-in + online</option><option value="online">Online only</option><option value="walkin">Walk-in only</option></select>
-        <input id="ri" placeholder="Item contains…" style="width:160px">
+        <input id="ri" placeholder="Item contains…" style="width:160px"></span>
         <button class="btn primary" id="rgo">Run report</button>
       </div>
-      <div class="tabs" id="rtabs">${[['summary', 'Summary'], ['station', 'By station'], ['item', 'By item'], ['order', 'By order'], ['hour', 'By hour']].map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}
+      <div class="tabs" id="rtabs">${[['sales', 'Sales & trends'], ['summary', 'Kitchen summary'], ['station', 'By station'], ['item', 'By item'], ['order', 'By order'], ['hour', 'By hour']].map(([k, l], i) => `<button data-t="${k}" class="${k === tab0 ? 'on' : ''}">${l}</button>`).join('')}
         <span class="grow"></span><button class="btn sm" id="csv">⬇ Download CSV</button></div>
       <div id="rout"><div class="muted">Loading…</div></div>
-      <p class="faint" style="font-size:.82em">Times are measured from when the order reached the kitchen. "Forced" bumps (finished without a station bump, or end-of-day close) are excluded from time averages.</p>
+      <p class="faint" style="font-size:.82em" id="rfoot">Times are measured from when the order reached the kitchen. "Forced" bumps (finished without a station bump, or end-of-day close) are excluded from time averages.</p>
     </div>${demoFlag()}`;
-    const R = { rows: [], tab: 'summary', table: null };
+    const R = { rows: [], tab: tab0, table: null, loaded: '' };
     K.$('#rng').onclick = (e) => {
       const b = e.target.closest('[data-r]'); if (!b) return;
       K.$$('#rng button').forEach((x) => x.classList.toggle('on', x === b));
       const t = new Date(), f = new Date();
       if (b.dataset.r === 'yesterday') { f.setDate(f.getDate() - 1); t.setDate(t.getDate() - 1); }
+      else if (b.dataset.r === 'month') f.setDate(1);
+      else if (b.dataset.r === 'lastmonth') { f.setMonth(f.getMonth() - 1, 1); t.setDate(0); }
       else if (b.dataset.r !== 'today') f.setDate(f.getDate() - (+b.dataset.r - 1));
-      K.$('#rf').value = ymd(f); K.$('#rt').value = ymd(t); run();
+      K.$('#rf').value = ymd(f); K.$('#rt').value = ymd(t); R.loaded = ''; run();
     };
-    K.$('#rtabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; K.$$('#rtabs [data-t]').forEach((x) => x.classList.toggle('on', x === b)); R.tab = b.dataset.t; draw(); };
-    K.$('#rgo').onclick = run;
+    K.$('#rtabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; K.$$('#rtabs [data-t]').forEach((x) => x.classList.toggle('on', x === b)); R.tab = b.dataset.t; history.replaceState(null, '', '#/reports?tab=' + R.tab); run(); };
+    K.$('#rgo').onclick = () => { R.loaded = ''; run(); };
     ['rs', 'ro'].forEach((id) => (K.$('#' + id).onchange = draw)); K.$('#ri').oninput = draw;
     K.$('#csv').onclick = () => {
       if (!R.table) return;
@@ -317,9 +324,16 @@
     };
 
     async function run() {
+      const sales = R.tab === 'sales';
+      K.$('#kfil').style.display = sales ? 'none' : ''; K.$('#csv').style.display = sales ? 'none' : ''; K.$('#rfoot').style.display = sales ? 'none' : '';
+      if (K.$('#rf').value > K.$('#rt').value) K.$('#rt').value = K.$('#rf').value;
+      if (sales && !K.renderSales) { K.$('#rout').innerHTML = '<div class="banner">The new report files (js/charts.js and js/reports-sales.js) are missing on the website — upload the whole web folder again.</div>'; return; }
+      if (sales) { R.table = null; return K.renderSales(K.$('#rout'), K.$('#rf').value, K.$('#rt').value); }
+      const key = K.$('#rf').value + '|' + K.$('#rt').value;
+      if (R.loaded === key) return draw();
       K.$('#rout').innerHTML = '<div class="muted">Loading…</div>';
       const f = new Date(K.$('#rf').value + 'T00:00:00'), t = new Date(K.$('#rt').value + 'T00:00:00'); t.setDate(t.getDate() + 1);
-      try { R.rows = await api.reportRows(f.toISOString(), t.toISOString()); draw(); }
+      try { R.rows = await api.reportRows(f.toISOString(), t.toISOString()); R.loaded = key; draw(); }
       catch (err) { K.$('#rout').innerHTML = `<div class="banner">${esc(err.message)}</div>`; }
     }
 
@@ -403,7 +417,12 @@
         const used = g.filter((x) => x.orders); const max = Math.max(1, ...used.map((x) => x.orders));
         table = { head: ['Hour', 'Orders', 'Units', 'Avg to ready'],
           rows: used.map((x) => [`${String(x.h).padStart(2, '0')}:00`, x.orders, x.units, K.dur(mean(x.ready))]) };
-        out.innerHTML = tableHtml(table, (r, i) => `<div class="bar" style="width:${Math.round(used[i].orders / max * 160)}px"></div>`);
+        const wdt = Math.max(320, Math.floor(out.clientWidth / (out.clientWidth > 1100 ? 2 : 1)) - 40);
+        const lbl = used.map((x) => `${x.h % 12 || 12}${x.h < 12 ? 'am' : 'pm'}`);
+        out.innerHTML = `<div class="vz-grid2" style="margin-top:0">
+          ${K.chart.bars({ title: 'Orders by hour', sub: 'kitchen load', width: wdt, height: 220, labels: lbl, fmt: (v) => v + ' orders', axisFmt: (v) => String(Math.round(v)), series: [{ name: 'Orders', color: '--s1', values: used.map((x) => x.orders) }] })}
+          ${K.chart.line({ title: 'Average minutes to ready, by hour', sub: `late = over ${lateMin} min`, width: wdt, height: 220, labels: lbl, fmt: (v) => v.toFixed(1) + ' min', axisFmt: (v) => Math.round(v) + 'm', series: [{ name: 'Minutes to ready', color: '--s1', main: true, values: used.map((x) => { const m = mean(x.ready); return m == null ? null : m / 60; }) }] })}
+        </div>` + tableHtml(table, (r, i) => `<div class="bar" style="width:${Math.round(used[i].orders / max * 160)}px"></div>`);
         R.table = table;
       }
     }

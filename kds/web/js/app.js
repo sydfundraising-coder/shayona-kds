@@ -122,6 +122,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
+  K.VERSION = '5 Oct 2026 · reports v2';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -309,6 +310,7 @@
           ${isAdmin ? `<a class="tile" href="#/reports"><b>Reports</b><span>Prep times by order, item &amp; station</span></a>
           <a class="tile" href="#/admin"><b>Admin</b><span>Stations, routing, settings, Square sync</span></a>` : ''}
         </div>
+        <p class="faint" style="margin-top:28px;font-size:.8em">KDS version: ${K.esc(K.VERSION)}</p>
       </div>${api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : ''}`;
     const so = K.$('#signout'); if (so) so.onclick = async () => { await api.signOut(); location.hash = '#/'; boot(); };
   };
