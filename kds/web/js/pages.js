@@ -123,16 +123,17 @@
     const byItem = new Map(); items.forEach((c) => { if (!byItem.has(c.item_id)) byItem.set(c.item_id, c); });
     K.$('#tab').innerHTML = `
       <p class="muted">Decide which station makes each item. Set it once per <b>category</b>, then override single items if needed (e.g. bottled drinks = no prep).
-      "No prep" items skip the stations and go straight to the Window. Items left <b>Not assigned</b> skip the kitchen <i>and</i> the Window — they're ready to hand over at the front counter straight away (e.g. bottled water).</p>
+      "No prep" items skip the stations and go straight to the Window. <b>Skip window</b> = made at the station, then straight to the front counter (never on the order handling window). Items left <b>Not assigned</b> skip the kitchen <i>and</i> the Window — they're ready to hand over at the front counter straight away (e.g. bottled water).</p>
       <h2>By category</h2>
-      <div class="tablewrap" style="max-height:none"><table class="t"><thead><tr><th>Square category</th><th class="n">Items</th><th>Station</th><th title="Ready items wait at the counter until the whole order is ready (e.g. ice cream, hot drinks)">Hold until order complete</th></tr></thead><tbody>
+      <div class="tablewrap" style="max-height:none"><table class="t"><thead><tr><th>Square category</th><th class="n">Items</th><th>Station</th><th title="Ready items wait at the counter until the whole order is ready (e.g. ice cream, hot drinks)">Hold until order complete</th><th title="Made at the station, then straight to the front counter — never shows on the order handling window">Skip order window</th></tr></thead><tbody>
       ${cats.filter((c) => usedCats.has(c.square_id)).map((c) => `<tr data-cat="${esc(c.square_id)}" ${!c.station_id && !c.no_prep ? 'style="box-shadow:inset 4px 0 0 var(--late)"' : ''}><td><b>${esc(c.name)}</b></td>
         <td class="n">${items.filter((i) => i.category_id === c.square_id).length}</td><td>${stationSelect(c.station_id, c.no_prep, false)}</td>
-        <td><label class="row"><input type="checkbox" data-hold ${c.hold ? 'checked' : ''}> Hold</label></td></tr>`).join('')}
+        <td><label class="row"><input type="checkbox" data-hold ${c.hold ? 'checked' : ''}> Hold</label></td>
+        <td><label class="row"><input type="checkbox" data-skipw ${c.skip_window ? 'checked' : ''}> Skip window</label></td></tr>`).join('')}
       </tbody></table></div>
       <h2>Item overrides</h2>
       <div class="row" style="margin-bottom:8px"><input id="iq" placeholder="Search items…" class="grow"><select id="if"><option value="">All items</option><option value="unrouted">Not assigned</option><option value="over">Overridden only</option></select></div>
-      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Goes to</th><th>Override</th><th>Hold until complete</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
+      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Goes to</th><th>Override</th><th>Hold until complete</th><th>Order window</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
     const drawItems = () => {
       const q = K.$('#iq').value.toLowerCase(), f = K.$('#if').value;
       let rows = [...byItem.values()];
@@ -144,12 +145,24 @@
         const goes = np ? '<span class="pill badge-walkin">No prep</span>' : r ? `<span class="pill" style="background:${esc(K.stationById(r)?.colour)};color:#fff">${esc(K.stationById(r)?.name)}</span>` : '<span class="pill badge-cancel">Not assigned</span>';
         const val = c.no_prep === true ? '__noprep' : c.station_id || (c.no_prep === false ? '' : '__follow');
         return `<tr data-item="${esc(c.item_id)}"><td><b>${esc(c.item_name)}</b></td><td class="muted">${esc(c.category_name || '')}</td><td>${goes}</td><td>${stationSelect(val, c.no_prep === true, true)}</td>
-          <td><select data-ihold><option value="" ${c.hold == null ? 'selected' : ''}>Same as category</option><option value="1" ${c.hold === true ? 'selected' : ''}>Hold</option><option value="0" ${c.hold === false ? 'selected' : ''}>Don't hold</option></select></td></tr>`;
+          <td><select data-ihold><option value="" ${c.hold == null ? 'selected' : ''}>Same as category</option><option value="1" ${c.hold === true ? 'selected' : ''}>Hold</option><option value="0" ${c.hold === false ? 'selected' : ''}>Don't hold</option></select></td>
+          <td><select data-iskipw><option value="" ${c.skip_window == null ? 'selected' : ''}>Same as category${catSkip(c) ? ' (skip)' : ''}</option><option value="1" ${c.skip_window === true ? 'selected' : ''}>Skip window</option><option value="0" ${c.skip_window === false ? 'selected' : ''}>Goes to window</option></select></td></tr>`;
       }).join('');
     };
+    function catSkip(c) { return !!cats.find((k) => k.square_id === c.category_id)?.skip_window; }
     function isNoPrep(c) { if (c.no_prep != null) return c.no_prep; const cat = cats.find((k) => k.square_id === c.category_id); return !!cat?.no_prep && !c.station_id; }
     K.$('#iq').oninput = drawItems; K.$('#if').onchange = drawItems;
     K.$('#tab').onchange = async (e) => {
+      const sw = e.target.closest('[data-skipw],[data-iskipw]');
+      if (sw) {
+        const tr = sw.closest('tr');
+        try {
+          if (sw.matches('[data-skipw]')) { await api.setCategorySkipWindow(tr.dataset.cat, sw.checked); cats.find((k) => k.square_id === tr.dataset.cat).skip_window = sw.checked; drawItems(); }
+          else { const v = sw.value === '' ? null : sw.value === '1'; await api.setItemSkipWindow(tr.dataset.item, v); st.cfg.catalog.filter((c) => c.item_id === tr.dataset.item).forEach((c) => (c.skip_window = v)); }
+          K.toast('Saved — applies to orders on screen now and new orders');
+        } catch (err) { K.toast(/skip_window/.test(err.message) ? 'Run 010_skip_window.sql in Supabase first' : err.message, { error: true }); }
+        return;
+      }
       const hc = e.target.closest('[data-hold],[data-ihold]');
       if (hc) {
         const tr = hc.closest('tr');

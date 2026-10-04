@@ -183,6 +183,9 @@
     }
     async setCategoryHold(catId, hold) { return this._chk(await this.sb.from('categories').update({ hold: !!hold }).eq('square_id', catId)); }
     async setItemHold(itemId, hold) { return this._chk(await this.sb.from('catalog_items').update({ hold }).eq('item_id', itemId)); }
+    async setCategorySkipWindow(catId, v) { this._chk(await this.sb.from('categories').update({ skip_window: !!v }).eq('square_id', catId)); return this._applySkip(); }
+    async setItemSkipWindow(itemId, v) { this._chk(await this.sb.from('catalog_items').update({ skip_window: v }).eq('item_id', itemId)); return this._applySkip(); }
+    async _applySkip() { const { data, error } = await this.sb.rpc('kds_apply_skip_window'); if (error) console.warn(error.message); return data; }
     async saveSetting(key, value) {
       return this._chk(await this.sb.from('kds_settings').upsert({ key, value, updated_at: iso(now()) }));
     }
@@ -267,7 +270,8 @@
     _route(cat) {
       const c = this.categories.find((x) => x.square_id === cat.category_id);
       const noPrep = cat.no_prep ?? c?.no_prep ?? false;
-      return { station_id: noPrep ? null : (cat.station_id || c?.station_id || null), no_prep: noPrep };
+      const skipWin = cat.skip_window ?? c?.skip_window ?? false;
+      return { station_id: noPrep ? null : (cat.station_id || c?.station_id || null), no_prep: noPrep, skip_window: !!skipWin };
     }
     _pickLines(rand) {
       const food = this.catalog.filter((c) => c.available && !['SWEETS & PACKAGED'].includes(c.category_name));
@@ -306,11 +310,12 @@
       this.orders.push(o);
       (opts.lines || this._pickLines(rand)).forEach((l, idx) => {
         const r = this._route(l.it);
-        const skip = !r.station_id && !r.no_prep;   // not assigned: straight to the front counter
+        const skip = (!r.station_id && !r.no_prep) || (r.no_prep && r.skip_window);   // straight to the front counter
+        const skipWin = r.skip_window && !skip && !r.no_prep;
         const pack = l.mods.some((m) => /take ?away/i.test(m)) ? 'BOX' : online ? 'BOX' : 'PLATE';
         this.items.push({
           id: uuid(), order_id: o.id, square_uid: 'u' + idx, variation_id: l.it.variation_id, item_name: l.it.item_name,
-          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep || skip,
+          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep || skip, skip_window: skipWin,
           qty: l.qty, modifiers: l.mods, note: l.note, pack, qty_prep: r.no_prep || skip ? l.qty : 0, qty_window: skip ? l.qty : 0, qty_front: 0,
           removed: false, sort: idx, created_at: iso(at), prepared_at: r.no_prep || skip ? iso(at) : null, window_at: skip ? iso(at) : null, collected_at: null,
         });
@@ -399,7 +404,10 @@
           if (needW > 0) { it.qty_window += needW; if (it.qty_window >= it.qty) it.window_at = it.window_at || w; ev('window', needW, true); }
         }
       }
-      if (stage === 'prep') { it.qty_prep += n; if (it.qty_prep >= it.qty) it.prepared_at = it.prepared_at || w; }
+      if (stage === 'prep') {
+        it.qty_prep += n; if (it.qty_prep >= it.qty) it.prepared_at = it.prepared_at || w;
+        if (it.skip_window) { it.qty_window = Math.min(it.qty, it.qty_window + n); if (it.qty_window >= it.qty) it.window_at = it.window_at || w; }
+      }
       else if (stage === 'window') { it.qty_window += n; if (it.qty_window >= it.qty) it.window_at = it.window_at || w; }
       else { it.qty_front += n; if (it.qty_front >= it.qty) it.collected_at = it.collected_at || w; }
       ev(stage, n, !!force);
@@ -437,7 +445,8 @@
       const e = this.events.find((x) => x.id === eventId);
       if (!e || e.undone || e.qty <= 0) throw new Error('Nothing to recall');
       const it = this.items.find((i) => i.id === e.order_item_id);
-      if (e.stage === 'prep') { if (it.qty_prep - e.qty < it.qty_window) throw new Error('Already finished at the window — recall it there first'); it.qty_prep -= e.qty; it.prepared_at = null; }
+      if (e.stage === 'prep' && it.skip_window) { if (it.qty_window - e.qty < it.qty_front) throw new Error('Already collected — recall it on the front screen first'); it.qty_prep -= e.qty; it.qty_window = Math.max(0, it.qty_window - e.qty); it.prepared_at = null; it.window_at = null; }
+      else if (e.stage === 'prep') { if (it.qty_prep - e.qty < it.qty_window) throw new Error('Already finished at the window — recall it there first'); it.qty_prep -= e.qty; it.prepared_at = null; }
       else if (e.stage === 'window') { if (it.qty_window - e.qty < it.qty_front) throw new Error('Already collected — recall it on the front screen first'); it.qty_window -= e.qty; it.window_at = null; }
       else { it.qty_front -= e.qty; it.collected_at = null; }
       e.undone = true;
@@ -508,6 +517,8 @@
     async saveSetting(key, value) { this.settings[key] = value; }
     async setCategoryHold(catId, hold) { this.categories.find((c) => c.square_id === catId).hold = !!hold; }
     async setItemHold(itemId, hold) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.hold = hold)); }
+    async setCategorySkipWindow(catId, v) { this.categories.find((c) => c.square_id === catId).skip_window = !!v; }
+    async setItemSkipWindow(itemId, v) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.skip_window = v)); }
     async reportRows(fromIso, toIso) {
       const f = new Date(fromIso), t = new Date(toIso);
       const sName = Object.fromEntries(this.stations.map((s) => [s.id, s.name]));
