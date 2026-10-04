@@ -96,6 +96,9 @@ a{color:inherit}
 .item.ready{border-color:var(--ok);background:var(--ok-bg)}
 .item.unrouted{border-color:var(--late)}
 .qty{min-width:2.2em;height:2.2em;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.15em}
+.qty.qtap{position:relative;cursor:pointer;border:2px dashed var(--accent,#f59e0b);flex-direction:column;line-height:1;min-width:2.6em;height:2.6em}
+.qty.qtap em{font-style:normal;font-size:.5em;font-weight:800;color:var(--accent,#f59e0b);margin-top:2px}
+.qty.qtap:active{transform:scale(.92)}
 .qty small{font-size:.6em;color:var(--muted);font-weight:700;margin-left:1px}
 .iname{font-weight:700;line-height:1.2;word-break:break-word}
 .ivar{font-weight:600;color:var(--muted)}
@@ -323,3 +326,11 @@ table.t tr:hover td{background:var(--card2)}
 :root:not([data-theme="warm"]) .mm-row.off .switch,
 :root:not([data-theme="warm"]) .avail.off .switch{background:#d9b88f}
 :root:not([data-theme="warm"]) .mm-row.off select{background:#fff6ea;color:#2a1a0a;border-color:#e9c79a}
+
+/* stronger order-type badges */
+.pill.big{font-size:.9em;padding:4px 11px;letter-spacing:.04em;font-weight:900}
+.badge-walk{background:#14b8a6;color:#042f2c}
+.badge-ta{background:#fb923c;color:#1a0c00;box-shadow:0 0 0 2px rgba(251,146,60,.35)}
+.badge-di{background:#38bdf8;color:#001a26}
+.pack{font-size:.9em;padding:4px 10px}
+.pack.BOX{background:#fb923c;color:#1a0c00;box-shadow:0 0 0 2px rgba(251,146,60,.35)}

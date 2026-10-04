@@ -59,7 +59,13 @@
   function badges(o) {
     const b = [];
     if (o.status === 'cancelled') b.push('<span class="pill badge-cancel">CANCELLED IN SQUARE</span>');
-    b.push(o.is_online ? `<span class="pill badge-online">ONLINE${o.source_name && !/^online$/i.test(o.source_name) ? ' · ' + esc(o.source_name) : ''}</span>` : '<span class="pill badge-walkin">Walk-in</span>');
+    b.push(o.is_online ? `<span class="pill badge-online big">ONLINE${o.source_name && !/^online$/i.test(o.source_name) ? ' · ' + esc(o.source_name) : ''}</span>` : '<span class="pill badge-walk big">WALK-IN</span>');
+    // order-level take away / dine-in summary
+    const its = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && showPack(i));
+    if (its.length) {
+      const ta = its.some((i) => i.pack === 'BOX'), di = its.some((i) => i.pack !== 'BOX');
+      b.push(ta && di ? '<span class="pill badge-ta big">TAKE AWAY + DINE-IN</span>' : ta ? '<span class="pill badge-ta big">TAKE AWAY</span>' : '<span class="pill badge-di big">DINE-IN</span>');
+    }
     if (o.pickup_at) b.push(`<span class="pill badge-pickup">Pickup ${K.time(o.pickup_at)}</span>`);
     if (o.table_name) b.push(`<span class="pill badge-pickup">${esc(o.table_name)}</span>`);
     if (o.forced) b.push('<span class="pill badge-forced">Forced</span>');
@@ -81,7 +87,8 @@
       const ready = it.qty_prep - it.qty_window, waiting = it.qty - it.qty_prep, rem = it.qty - it.qty_window;
       let cls, status = '', tap = null;
       if (rem <= 0) { cls = 'done'; status = 'Finished'; }
-      else if (ready > 0) { cls = 'tap ready'; tap = { stage: 'window' }; status = `${ready} ready to finish${waiting ? ` · ${waiting} still at ${esc(st0?.name || 'station')}` : ''}`; }
+      else if (ready > 0) { cls = 'tap ready'; tap = { stage: 'window' }; status = `Ready to finish${waiting ? ` · ${waiting} more still at ${esc(st0?.name || 'station')}` : ''}`;
+        return { rem: ready, total: ready, doneCount: 0, cls, tap, status }; }
       else if (unrouted) { cls = 'tap unrouted'; tap = { stage: 'window', force: true }; status = 'No station set — tap to finish anyway'; }
       else { cls = 'waiting'; status = `Waiting · ${esc(st0?.name || 'kitchen')}${it.qty > 1 ? ` (${it.qty_prep}/${it.qty} made)` : ''}`; }
       return { rem, total: it.qty, doneCount: it.qty_window, cls, tap, status };
@@ -90,21 +97,32 @@
     const col = it.qty_window - it.qty_front, rem = it.qty - it.qty_front;
     let cls, status, tap = null;
     if (rem <= 0) { cls = 'done'; status = 'Collected'; }
-    else if (col > 0 && held) { cls = 'waiting'; status = `${col} ready · held until the whole order is ready`; }
-    else if (col > 0) { cls = 'tap ready'; tap = { stage: 'front' }; status = `${col} ready to hand over`; }
+    else if (col > 0 && held) { return { rem: col, total: col, doneCount: 0, cls: 'waiting', tap: null, status: 'Ready · held until the whole order is ready' }; }
+    else if (col > 0) { return { rem: col, total: col, doneCount: 0, cls: 'tap ready', tap: { stage: 'front' }, status: `Ready to hand over${rem > col ? ` · ${rem - col} more to come` : ''}` }; }
     else if (it.qty_prep > it.qty_window) { cls = 'waiting'; status = 'At window'; }
     else { cls = 'waiting'; status = unrouted ? 'No station set' : `At ${esc(st0?.name || 'kitchen')} (${it.qty_prep}/${it.qty})`; }
     return { rem, total: it.qty, doneCount: it.qty_front, cls, tap, status };
+  }
+  // window + front only show what has actually been pushed to them
+  function visibleItems(m, kind, p) {
+    if (kind === 'station') return p && p.hideDone ? m.pending : m.items;
+    if (m.o.status === 'cancelled') return m.items;
+    if (kind === 'window') return m.items.filter((i) => i.qty_prep > i.qty_window);
+    return m.items.filter((i) => i.qty_window > i.qty_front);
   }
   function itemRow(o, it, kind, cancelled) {
     const m = itemModel(it, kind, kind === 'front' && K.isHeld(it) && !allWindowDone(o));
     const tap = !cancelled && m.tap;
     const name = `${esc(it.item_name)}${it.variation_name ? ` <span class="ivar">· ${esc(it.variation_name)}</span>` : ''}`;
-    return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')}" ${tap ? `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="1" ${m.tap.force ? 'data-force="1"' : ''}` : ''}>
-      <div class="qty">${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</div>
+    const units = !tap ? 0 : kind === 'station' ? m.rem
+      : kind === 'window' ? (m.tap.force ? m.rem : it.qty_prep - it.qty_window)
+      : (m.tap.force ? m.rem : it.qty_window - it.qty_front);
+    const multi = units > 1;
+    const bumpAttrs = (n) => `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="${n}" ${m.tap.force ? 'data-force="1"' : ''}`;
+    return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')}" ${tap ? bumpAttrs(multi ? 'all' : 1) : ''}>
+      <div class="qty${multi ? ' qtap' : ''}" ${multi ? `${bumpAttrs(1)} title="Tap to clear 1"` : ''}><span>${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</span>${multi ? '<em>−1</em>' : ''}</div>
       <div><div class="iname">${name}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}${m.status ? `<div class="istatus">${m.status}</div>` : ''}</div>
-      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}${dots(m.doneCount, m.total)}
-        ${tap && m.rem > 1 && (kind !== 'window' || it.qty_prep - it.qty_window > 1) && (kind !== 'front' || it.qty_window - it.qty_front > 1) ? `<button class="allbtn" data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="all">ALL</button>` : ''}</div>
+      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}${kind === 'station' ? dots(m.doneCount, m.total) : ''}</div>
     </li>`;
   }
 
@@ -138,6 +156,7 @@
       // items with no station don't go through the window (they're ready at the front counter)
       const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && (i.station_id || i.no_prep));
       if (!items.some((i) => i.qty_window < i.qty)) continue;
+      if (o.status !== 'cancelled' && !items.some((i) => i.qty_prep > i.qty_window)) continue;   // nothing pushed yet
       out.push({ o, items, pending: items.filter((i) => i.qty_prep > i.qty_window) });
     }
     return sortOrders(out, p);
@@ -177,19 +196,20 @@
           : `<button class="btn" disabled>${o.status === 'at_window' ? 'At window' : 'In kitchen'}</button>`;
       foot += `<button class="btn menu-btn" data-act="force" data-order="${o.id}" data-stage="front" title="More">⋮</button>`;
     }
-    const items = (kind === 'station' && ctx.p.hideDone ? m.pending : m.items);
+    const items = visibleItems(m, kind, ctx.p);
     return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
-      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}</ul>
+      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other" style="padding:6px">Nothing ready yet</li>'}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
       ${kind === 'front' && !cancelled ? frontExtra(o) : ''}
       <div class="t-foot">${foot}</div></div>`;
   }
   function frontExtra(o) {
     const pk = K.pickup(o);
-    if (pk.allReady || !pk.readyOrDone) return '';
+    if (pk.allReady) return '';
     const todo = pk.items.filter((i) => i.qty_window < i.qty).map((i) => `${esc(i.item_name)} ×${i.qty - i.qty_window}`);
-    return `<div class="t-other"><b style="color:var(--ok)">${pk.readyOrDone} of ${pk.total} ready/collected</b>${todo.length ? ` · Still to come: ${todo.join(', ')}` : ''}</div>`;
+    if (!todo.length && !pk.readyOrDone) return '';
+    return `<div class="t-other">${pk.readyOrDone ? `<b style="color:var(--ok)">${pk.readyOrDone} of ${pk.total} ready/collected</b> · ` : ''}${todo.length ? `Still to come: ${todo.join(', ')}` : ''}</div>`;
   }
   function listRow(m, kind, ctx) {
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
@@ -197,7 +217,7 @@
     const foot = t.match(/<div class="t-foot">([\s\S]*)<\/div><\/div>$/)?.[1] || '';
     return `<div class="lrow ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
       <div class="lhead"><span class="ono">${esc(ono(o))}</span>${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
-      <ul class="t-items litems" style="padding:0">${m.items.map((it) => itemRow(o, it, kind, cancelled)).join('')}</ul>
+      <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other">Nothing ready yet</li>'}</ul>
       <div class="row">${foot}</div></div>`;
   }
   function summaryView(model, ctx) {
@@ -236,10 +256,14 @@
         if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, ready: [], cooking: [], nReady: 0, nCooking: 0, oldest: m.o.received_at });
         const g = groups.get(key);
         if (ready > 0) { g.ready.push({ o: m.o, it, n: ready, last: remainingOf(m.o) <= ready }); g.nReady += ready; }
-        if (cooking > 0) { g.cooking.push({ o: m.o, it, n: cooking, waiting: true }); g.nCooking += cooking; }
+        if (cooking > 0) g.nCooking += cooking;   // still cooking: counted, not listed
       });
     });
-    if (!groups.size) return empty('All caught up');
+    const ready = [...groups.values()].filter((g) => g.nReady > 0);
+    const cookingOnly = [...groups.values()].filter((g) => !g.nReady && g.nCooking);
+    const comingLine = cookingOnly.length ? `<div class="mcoming muted">Still cooking: ${cookingOnly.map((g) => `${esc(g.name)} ×${g.nCooking}`).join(' · ')}</div>` : '';
+    if (!ready.length) return empty(cookingOnly.length ? 'Nothing ready yet' : 'All caught up') + comingLine;
+    groups.clear(); ready.forEach((g) => groups.set(g.name + '|' + (g.variation || ''), g));
     const byAge = (x, y) => new Date(x.o.received_at) - new Date(y.o.received_at);
     const sorted = [...groups.values()].sort((a, b) => ((b.nReady > 0) - (a.nReady > 0)) || (new Date(a.oldest) - new Date(b.oldest)));
     const modsOf = (it) => (it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
@@ -275,7 +299,7 @@
           <small class="muted" style="display:block;font-weight:600">${g.nReady} ready${g.nCooking ? ` · ${g.nCooking} cooking` : ''}</small></span>
         ${g.nReady ? `<button class="btn sm ok" data-act="bump" data-item="${first.it.id}" data-stage="window" data-n="1">Finish oldest</button>` : ''}</div>
         <div class="mrows">${rows}</div></div>`;
-    }).join('');
+    }).join('') + comingLine;
   }
   const empty = (txt = 'All caught up') => `<div class="empty"><div class="big">✓</div>${txt}</div>`;
 
@@ -284,7 +308,7 @@
     model.forEach((m) => {
       if (m.o.status === 'cancelled') return;
       m.items.forEach((it) => {
-        const n = kind === 'station' ? it.qty - it.qty_prep : it.qty - it.qty_window;
+        const n = kind === 'station' ? it.qty - it.qty_prep : it.qty_prep - it.qty_window;
         if (n > 0) t.set(it.item_name, (t.get(it.item_name) || 0) + n);
       });
     });
@@ -353,7 +377,7 @@
 
     // stats
     const units = model.reduce((a, m) => a + m.items.reduce((b, it) => b + Math.max(0,
-      kind === 'station' ? it.qty - it.qty_prep : kind === 'window' ? it.qty - it.qty_window : it.qty - it.qty_front), 0), 0);
+      kind === 'station' ? it.qty - it.qty_prep : kind === 'window' ? it.qty_prep - it.qty_window : it.qty_window - it.qty_front), 0), 0);
     const late = model.filter((m) => Date.now() - new Date(m.o.received_at) >= ctx.th.late && m.o.status !== 'cancelled').length;
     K.$('#stats').innerHTML = `Orders <b>${model.length}</b> · Items <b>${units}</b>${late ? ` · <span style="color:var(--late)">Late <b style="color:var(--late)">${late}</b></span>` : ''}${kind === 'front' ? ` · Ready <b style="color:var(--ok)">${model.filter((m) => m.o.status === 'ready').length}</b>` : ''}`;
 
