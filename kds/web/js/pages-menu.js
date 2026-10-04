@@ -88,7 +88,7 @@
     K.$('#mq').oninput = draw; K.$('#mf').onchange = draw;
     K.$('#msync').onclick = async (e) => {
       e.target.disabled = true;
-      try { const r = await api.syncCatalog(); await reloadCfg(); K.toast(`Menu refreshed — ${r.variations} items`); draw(); }
+      try { const r = await api.syncCatalog(); await reloadCfg(); K.toast(`Menu refreshed from Square — ${r.variations} items` + (r.available != null ? `, ${r.available} available, ${r.sold_out} sold out` : '')); draw(); }
       catch (err) { K.toast(err.message, { error: true }); } finally { e.target.disabled = false; }
     };
     K.$('#mlist').onclick = async (e) => {

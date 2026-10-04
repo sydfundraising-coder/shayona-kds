@@ -232,7 +232,7 @@
       try {
         const a = b.dataset.sq; let res;
         if (a === 'test') { res = await api.testSquare(); out.innerHTML = `✓ Connected to <b>${esc(res.location)}</b> (${esc(res.business || '')}, ${esc(res.timezone || '')})`; }
-        if (a === 'catalog') { res = await api.syncCatalog(); out.textContent = `✓ Synced ${res.variations} items in ${res.categories} categories`; await K.loadConfig(); }
+        if (a === 'catalog') { res = await api.syncCatalog(); out.textContent = `✓ Synced ${res.variations} items in ${res.categories} categories` + (res.available != null ? ` — ${res.available} available, ${res.sold_out} sold out in Square` : ''); await K.loadConfig(); }
         if (a === 'orders') { res = await api.syncOrders(60); out.textContent = `✓ ${res.ingested} order(s) pulled in`; K.reload(0); }
         if (a === 'today') {
           const mid = new Date(); mid.setHours(0, 0, 0, 0);
