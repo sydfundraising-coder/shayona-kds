@@ -27,7 +27,7 @@
     const tabs = [['items', 'Items & availability'], ['screens', 'TV screens, notices & presets'], ['media', 'Photos & videos']];
     app().innerHTML = `<div class="topbar"><a class="iconbtn" href="#/">←</a><div class="title">Menu &amp; TV screens</div><span class="grow"></span>
       <a class="iconbtn" href="menu-board.html" target="_blank" rel="noopener">TV menu ↗</a><a class="iconbtn" href="menu-slideshow.html" target="_blank" rel="noopener">Slideshow ↗</a>
-      <span class="conn ${st.connected ? '' : 'off'}"></span><span class="clock"></span></div>
+      ${K.themeBtn()}<span class="conn ${st.connected ? '' : 'off'}"></span><span class="clock"></span></div>
       <div class="page"><div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="mtab"></div></div>
       ${api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : ''}`;
     K.$('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) location.hash = '#/menu?tab=' + b.dataset.tab; };

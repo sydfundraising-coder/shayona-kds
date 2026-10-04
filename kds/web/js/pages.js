@@ -2,7 +2,7 @@
 (function () {
   const K = window.KDS, st = K.state, api = K.api, esc = K.esc;
   const app = () => document.getElementById('app');
-  const pageTop = (title, back = '#/') => `<div class="topbar"><a class="iconbtn" href="${back}">←</a><div class="title">${esc(title)}</div><span class="grow"></span><span class="conn ${st.connected ? '' : 'off'}"></span><span class="clock"></span></div>`;
+  const pageTop = (title, back = '#/') => `<div class="topbar"><a class="iconbtn" href="${back}">←</a><div class="title">${esc(title)}</div><span class="grow"></span>${K.themeBtn()}<span class="conn ${st.connected ? '' : 'off'}"></span><span class="clock"></span></div>`;
   const demoFlag = () => (api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : '');
 
   // ================================================================== availability

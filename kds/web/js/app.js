@@ -46,6 +46,19 @@
     document.documentElement.style.setProperty('--fs', p?.fs || 1);
   };
 
+  // light / dark switch for the office pages (home, menu control, admin, reports)
+  K.themeBtn = () => {
+    const t = K.prefs('global', { theme: 'dark' }).theme;
+    return `<button class="iconbtn" data-theme-toggle title="Switch light / dark">${t === 'light' ? '🌙 Dark' : '☀ Light'}</button>`;
+  };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-theme-toggle]'); if (!b) return;
+    const p = K.prefs('global', { theme: 'dark' });
+    p.theme = p.theme === 'light' ? 'dark' : 'light';
+    K.savePrefs('global', p); K.applyTheme(p);
+    K.$$('[data-theme-toggle]').forEach((x) => (x.outerHTML = K.themeBtn()));
+  });
+
   // ------------------------------------------------------------------ toasts / modals / drawers
   K.toast = function (msg, opts = {}) {
     let box = K.$('.toasts'); if (!box) { box = document.createElement('div'); box.className = 'toasts'; document.body.appendChild(box); }
@@ -171,7 +184,7 @@
         <div class="row" style="justify-content:space-between;flex-wrap:wrap">
           <div><h1>Shayona Cafe · Kitchen Display</h1>
           <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
-          <div class="row">${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
+          <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
         ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They will show on the Window screen marked "No station". <a href="#/admin?tab=routing">Fix routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
