@@ -323,3 +323,11 @@ table.t tr:hover td{background:var(--card2)}
 :root:not([data-theme="warm"]) .mm-row.off .switch,
 :root:not([data-theme="warm"]) .avail.off .switch{background:#d9b88f}
 :root:not([data-theme="warm"]) .mm-row.off select{background:#fff6ea;color:#2a1a0a;border-color:#e9c79a}
+
+/* stronger order-type badges */
+.pill.big{font-size:.9em;padding:4px 11px;letter-spacing:.04em;font-weight:900}
+.badge-walk{background:#14b8a6;color:#042f2c}
+.badge-ta{background:#fb923c;color:#1a0c00;box-shadow:0 0 0 2px rgba(251,146,60,.35)}
+.badge-di{background:#38bdf8;color:#001a26}
+.pack{font-size:.9em;padding:4px 10px}
+.pack.BOX{background:#fb923c;color:#1a0c00;box-shadow:0 0 0 2px rgba(251,146,60,.35)}
