@@ -46,17 +46,20 @@
     document.documentElement.style.setProperty('--fs', p?.fs || 1);
   };
 
-  // light / dark switch for the office pages (home, menu control, admin, reports)
-  K.themeBtn = () => {
-    const t = K.prefs('global', { theme: 'dark' }).theme;
-    return `<button class="iconbtn" data-theme-toggle title="Switch light / dark">${t === 'light' ? '🌙 Dark' : '☀ Light'}</button>`;
+  // theme switch for the office pages (home, admin, reports: dark/light; menu control: Shayona warm/dark)
+  const THEME_LABEL = { dark: '🌙 Dark', light: '☀ Light', warm: '☀ Shayona' };
+  K.themeBtn = (key = 'global', themes = ['dark', 'light']) => {
+    const t = K.prefs(key, { theme: themes[0] }).theme;
+    const next = themes[(themes.indexOf(t) + 1) % themes.length] || themes[0];
+    return `<button class="iconbtn" data-theme-toggle data-key="${key}" data-themes="${themes.join(',')}" title="Change colours">${THEME_LABEL[next]}</button>`;
   };
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-theme-toggle]'); if (!b) return;
-    const p = K.prefs('global', { theme: 'dark' });
-    p.theme = p.theme === 'light' ? 'dark' : 'light';
-    K.savePrefs('global', p); K.applyTheme(p);
-    K.$$('[data-theme-toggle]').forEach((x) => (x.outerHTML = K.themeBtn()));
+    const key = b.dataset.key, themes = b.dataset.themes.split(',');
+    const p = K.prefs(key, { theme: themes[0] });
+    p.theme = themes[(themes.indexOf(p.theme) + 1) % themes.length] || themes[0];
+    K.savePrefs(key, p); K.applyTheme(p);
+    K.$$('[data-theme-toggle]').forEach((x) => (x.outerHTML = K.themeBtn(x.dataset.key, x.dataset.themes.split(','))));
   });
 
   // ------------------------------------------------------------------ toasts / modals / drawers

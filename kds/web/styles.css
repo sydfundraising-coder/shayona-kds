@@ -275,3 +275,36 @@ table.t tr:hover td{background:var(--card2)}
 .media-card img,.media-card video{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:var(--bg)}
 @media (max-width:760px){.mm-row{grid-template-columns:auto 1fr}.mm-tools{grid-column:1/-1;justify-content:flex-start}.mm-grid{grid-template-columns:1fr}}
 .pboard.three .num{display:flex;flex-direction:column;align-items:center;line-height:1}
+
+/* ---------- "Shayona" warm theme (same look as the old Menu Manager) ---------- */
+:root[data-theme="warm"]{
+  --bg:#faf6f1; --panel:#ffffff; --card:#ffffff; --card2:#fbf7f2; --line:#ece4dc;
+  --text:#231a15; --muted:#8a7d73; --faint:#b3a79c;
+  --accent:#E8791A; --ok:#1f9d5b; --ok-bg:#e6f7ec; --warn:#d98a1a; --warn-bg:#fff2dd; --late:#c0392b; --late-bg:#fdeceb;
+  --online:#7A1F1F; --online-bg:#f6e9e9; --info:#2f74d0;
+  --shadow:0 1px 3px rgba(60,40,20,.08),0 6px 20px rgba(60,40,20,.06);
+  color-scheme: light;
+}
+:root[data-theme="warm"] body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+:root[data-theme="warm"] .topbar{background:linear-gradient(120deg,#E8791A,#C25E0C);color:#fff;border-bottom:0;box-shadow:0 2px 12px rgba(120,60,0,.25)}
+:root[data-theme="warm"] .topbar .iconbtn{background:rgba(0,0,0,.18);border-color:transparent;color:#fff;text-decoration:none}
+:root[data-theme="warm"] .topbar .iconbtn:hover{background:rgba(0,0,0,.3)}
+:root[data-theme="warm"] .topbar .conn{box-shadow:0 0 0 3px rgba(255,255,255,.35)}
+:root[data-theme="warm"] .tabs button.on{background:#fff;color:#C25E0C;box-shadow:var(--shadow)}
+:root[data-theme="warm"] #mlist h2{color:#7A1F1F;text-transform:uppercase;letter-spacing:.8px;font-size:.85em;font-weight:800;border-bottom:2px solid var(--line);padding-bottom:6px}
+:root[data-theme="warm"] .mm-row{box-shadow:var(--shadow);border-radius:11px}
+:root[data-theme="warm"] .mm-row.off{background:#fff;border-color:var(--line);opacity:.8}
+:root[data-theme="warm"] .tbtn{background:#fff;color:var(--muted)}
+:root[data-theme="warm"] .tbtn:hover{border-color:var(--accent)}
+:root[data-theme="warm"] .tbtn.on{background:#eef7f1;border-color:var(--ok);color:var(--ok)}
+:root[data-theme="warm"] .tbtn.on.jain{background:#fdeceb;border-color:var(--late);color:var(--late)}
+:root[data-theme="warm"] .tbtn.on.new{background:#e6f7ec;border-color:var(--ok);color:#0b6b34}
+:root[data-theme="warm"] .tbtn.on.wait{background:#fff2dd;border-color:#d98a1a;color:#a5590a}
+:root[data-theme="warm"] .btn{background:#fff;border-color:var(--line)}
+:root[data-theme="warm"] .btn:hover{border-color:var(--accent);color:#C25E0C;filter:none}
+:root[data-theme="warm"] .btn.primary{background:#E8791A;color:#fff;border-color:#E8791A}
+:root[data-theme="warm"] .btn.ok{background:var(--ok);color:#fff}
+:root[data-theme="warm"] input,:root[data-theme="warm"] select,:root[data-theme="warm"] textarea{background:#fff;border-color:var(--line)}
+:root[data-theme="warm"] .card{box-shadow:var(--shadow)}
+:root[data-theme="warm"] .mm-addon{color:#C25E0C}
+:root[data-theme="warm"] #mlist h2 .btn{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);font-weight:600}
