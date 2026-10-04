@@ -150,7 +150,7 @@
   // ---- short addresses: kds.shayona.com.au/pizza, /window, /front, /board, /2 (2nd station) …
   const slug = (t) => String(t || '').toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const SHORT = { w: 'window', window: 'window', expo: 'window', pass: 'window', f: 'front', front: 'front', counter: 'front',
-    board: 'board', pickup: 'board', tv: 'board', menu: 'menu', avail: 'availability', '86': 'availability', admin: 'admin', reports: 'reports', home: 'home' };
+    board: 'board', pickup: 'board', menu: 'menu', avail: 'availability', '86': 'availability', admin: 'admin', reports: 'reports', home: 'home' };
   K.stationSlug = (s) => slug(s.name).split('-')[0];
   K.stationByShort = function (key) {
     const k = slug(key); if (!k || !st.cfg) return null;
@@ -160,6 +160,12 @@
   };
   (function pathToHash() {
     const p = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ''));
+    const h = location.hash.replace(/^#\/?/, '').split('?')[0];
+    // TV pages never need a login — send them to their own page, whatever way they were typed
+    const TV = { 'menu-board': '/menu-board.html', menuboard: '/menu-board.html', tv: '/menu-board.html', tvmenu: '/menu-board.html', 'tv-menu': '/menu-board.html',
+      'menu-slideshow': '/menu-slideshow.html', slideshow: '/menu-slideshow.html', photos: '/menu-slideshow.html' };
+    const key = (p && !/\.html?$/i.test(p) ? p : h).toLowerCase().replace(/\.html?$/, '');
+    if (TV[key]) { K.redirecting = true; location.replace(TV[key]); return; }
     if (p && !/\.html?$/i.test(p) && !location.hash) location.replace('#/' + p);
   })();
 
@@ -294,8 +300,8 @@
         <h2>Menu &amp; TV screens</h2>
         <div class="tiles">
           <a class="tile" style="--c:var(--accent)" href="#/menu"><b>Menu control</b><span>Availability, NEW, Jain, wait times, presets, notices, photos</span></a>
-          <a class="tile" href="menu-board.html" target="_blank" rel="noopener"><b>TV menu board ↗</b><span>Live menu for the café TV</span></a>
-          <a class="tile" href="menu-slideshow.html" target="_blank" rel="noopener"><b>Photo slideshow ↗</b><span>Dish photos, videos &amp; promos</span></a>
+          <a class="tile" href="/menu-board.html" target="_blank" rel="noopener"><b>TV menu board ↗</b><span>Live menu for the café TV</span></a>
+          <a class="tile" href="/menu-slideshow.html" target="_blank" rel="noopener"><b>Photo slideshow ↗</b><span>Dish photos, videos &amp; promos</span></a>
         </div>
         <h2>Manage</h2>
         <div class="tiles">
@@ -325,6 +331,7 @@
 
   // ------------------------------------------------------------------ boot
   async function boot() {
+    if (K.redirecting) return;
     const app = document.getElementById('app');
     app.innerHTML = '<div class="empty"><div class="big">⏳</div>Loading…</div>';
     try {

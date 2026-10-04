@@ -230,11 +230,95 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
   return { categories: cats.length, variations: rows.length, available: rows.filter((r) => r.available).length, sold_out: rows.filter((r) => !r.available).length };
 }
 
-// ======================= function =======================
+// ---------------------------------------------------------------- Sales history (for reports)
+/** Local date (YYYY-MM-DD) and hour for an ISO time in the café's time zone. */
+function localParts(isoTime: string, tz: string) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(isoTime)).map((x) => [x.type, x.value]));
+  return { day: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
+}
+/** Midnight at the start of a local date, as an ISO time (works across daylight saving). */
+function localMidnight(day: string, tz: string) {
+  const guess = new Date(day + "T00:00:00Z");
+  for (let i = 0; i < 2; i++) {
+    const { day: d, hour } = localParts(guess.toISOString(), tz);
+    const shiftDays = (Date.parse(day) - Date.parse(d)) / 864e5;
+    guess.setTime(guess.getTime() + shiftDays * 864e5 - hour * 3600e3);
+  }
+  return guess.toISOString();
+}
+
+/** Pull completed Square orders for local dates [from, to] and store one row per line item. */
+export async function importSales(db: SupabaseClient, from: string, to: string, s?: Settings) {
+  const settings = s ?? await loadSettings(db);
+  const tz: string = settings.timezone ?? "Australia/Sydney";
+  const loc = settings.square_location_id;
+  const end = new Date(Date.parse(to) + 864e5).toISOString().slice(0, 10);
+  const startAt = localMidnight(from, tz), endAt = localMidnight(end, tz);
+
+  // category names from the catalog we already keep
+  const cats = new Map<string, string>();
+  for (let off = 0; ; off += 1000) {
+    const { data, error } = await db.from("catalog_items").select("variation_id,category_name").range(off, off + 999);
+    if (error) throw error;
+    (data ?? []).forEach((r: any) => cats.set(r.variation_id, r.category_name));
+    if (!data || data.length < 1000) break;
+  }
+  const onlineSources: string[] = settings.online_sources ?? [];
+  let cursor: string | undefined, orders = 0, lines = 0;
+  const started = Date.now();
+  do {
+    const r = await square("/orders/search", {
+      body: {
+        location_ids: [loc], cursor, limit: 500,
+        query: {
+          filter: { state_filter: { states: ["COMPLETED"] }, date_time_filter: { closed_at: { start_at: startAt, end_at: endAt } } },
+          sort: { sort_field: "CLOSED_AT", sort_order: "ASC" },
+        },
+      },
+    });
+    const rows: any[] = [];
+    for (const o of r.orders ?? []) {
+      const at = o.closed_at ?? o.created_at;
+      const { day, hour } = localParts(o.created_at ?? at, tz);
+      const f = (o.fulfillments ?? [])[0] ?? {};
+      const source: string = o.source?.name ?? "";
+      const online = hasAny(lc(source), onlineSources) || ["DELIVERY", "SHIPMENT"].includes(f.type) ||
+        (f.type === "PICKUP" && !!source && !/point of sale|square pos|restaurants/i.test(source));
+      orders++;
+      for (const li of o.line_items ?? []) {
+        if (li.item_type === "GIFT_CARD") continue;
+        const gross = Number(li.gross_sales_money?.amount ?? 0), disc = Number(li.total_discount_money?.amount ?? 0);
+        rows.push({
+          square_order_id: o.id, line_uid: li.uid ?? `${rows.length}`, day, hour, closed_at: at,
+          channel: online ? "Online" : "Walk-in", item_name: li.name ?? "Custom item",
+          variation_name: li.variation_name && li.variation_name !== "Regular" ? li.variation_name : null,
+          variation_id: li.catalog_object_id ?? null,
+          category_name: cats.get(li.catalog_object_id) ?? "Other",
+          qty: Number(li.quantity ?? 1), gross_cents: gross, discount_cents: disc, net_cents: gross - disc,
+        });
+      }
+    }
+    for (let i = 0; i < rows.length; i += 1000) {
+      const { error } = await db.from("sales_lines").upsert(rows.slice(i, i + 1000), { onConflict: "square_order_id,line_uid" });
+      if (error) throw error;
+    }
+    lines += rows.length;
+    cursor = r.cursor;
+    if (Date.now() - started > 110_000 && cursor) {          // stay inside the function time limit
+      return { orders, lines, from, to, partial: true, last_day: rows.length ? rows[rows.length - 1].day : from };
+    }
+  } while (cursor);
+  await db.from("kds_settings").upsert({ key: "sales_imported_at", value: new Date().toISOString() });
+  return { orders, lines, from, to, partial: false };
+}
+
 // Admin / scheduled sync with Square.
 //   POST { action: "test" }                     → checks the Square connection + location
 //   POST { action: "catalog" }                  → refresh categories + items for the café
 //   POST { action: "orders", minutes?: 60 }     → re-pull recent orders (safety net if a webhook was missed)
+//   POST { action: "sales", from, to }          → import completed sales (YYYY-MM-DD, up to ~1 month per call) for reports
 // Called from the Admin screen (admin login) or by pg_cron with header x-cron-secret.
 
 Deno.serve(async (req) => {
@@ -286,6 +370,16 @@ Deno.serve(async (req) => {
         cursor = r.cursor;
       } while (cursor);
       return json({ ok: true, ingested: n, since });
+    }
+
+    if (action === "sales") {
+      const tz = settings.timezone ?? "Australia/Sydney";
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(body.to ?? "") ? body.to : today;
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(body.from ?? "") ? body.from
+        : new Date(Date.parse(to) - Number(body.days ?? 2) * 864e5).toISOString().slice(0, 10);
+      if (Date.parse(to) - Date.parse(from) > 62 * 864e5) return json({ error: "Import at most 2 months per call" }, 400);
+      return json({ ok: true, ...(await importSales(db, from, to, settings)) });
     }
 
     return json({ error: "Unknown action" }, 400);

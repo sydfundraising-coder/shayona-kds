@@ -154,7 +154,7 @@
       if (o.status === 'completed' || o.status === 'ready') continue;
       if (o.status === 'cancelled' && !showCancelled(o)) continue;
       // items with no station don't go through the window (they're ready at the front counter)
-      const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && (i.station_id || i.no_prep));
+      const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && (i.station_id || i.no_prep) && !i.skip_window);
       if (!items.some((i) => i.qty_window < i.qty)) continue;
       if (o.status !== 'cancelled' && !items.some((i) => i.qty_prep > i.qty_window)) continue;   // nothing pushed yet
       out.push({ o, items, pending: items.filter((i) => i.qty_prep > i.qty_window) });
@@ -175,7 +175,8 @@
   function ticket(m, kind, ctx) {
     const { o } = m, th = ctx.th, cancelled = o.status === 'cancelled';
     const ageCls = K.ageClass(o.received_at, th);
-    const allReady = kind === 'window' && o.status === 'at_window';
+    const allReady = (kind === 'window' && o.status === 'at_window') || (kind === 'front' && o.status === 'ready');
+    const partReady = kind === 'front' && !allReady && !cancelled && K.pickup(o).collectable > 0;
     let foot = '';
     if (cancelled) foot = `<button class="btn" data-act="dismiss" data-order="${o.id}">Dismiss</button>`;
     else if (kind === 'station') {
@@ -197,7 +198,7 @@
       foot += `<button class="btn menu-btn" data-act="force" data-order="${o.id}" data-stage="front" title="More">⋮</button>`;
     }
     const items = visibleItems(m, kind, ctx.p);
-    return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+    return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
       <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other" style="padding:6px">Nothing ready yet</li>'}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
@@ -209,7 +210,7 @@
     if (pk.allReady) return '';
     const todo = pk.items.filter((i) => i.qty_window < i.qty).map((i) => `${esc(i.item_name)} ×${i.qty - i.qty_window}`);
     if (!todo.length && !pk.readyOrDone) return '';
-    return `<div class="t-other">${pk.readyOrDone ? `<b style="color:var(--ok)">${pk.readyOrDone} of ${pk.total} ready/collected</b> · ` : ''}${todo.length ? `Still to come: ${todo.join(', ')}` : ''}</div>`;
+    return `<div class="t-other">${pk.readyOrDone ? `<b style="color:var(--warn)">${pk.readyOrDone} of ${pk.total} ready</b> · ` : ''}${todo.length ? `Still to come: ${todo.join(', ')}` : ''}</div>`;
   }
   function listRow(m, kind, ctx) {
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
@@ -395,10 +396,9 @@
     if (!st.loaded) html = '<div class="board"><div class="empty"><div class="big">⏳</div>Loading orders…</div></div>';
     else if (kind === 'front' && p.layout === 'columns') {
       const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
-      html = `<div class="cols" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
-        ${col('In kitchen', '', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
-        ${col('Collect now (part ready)', 'ready', model.filter((m) => m.o.status !== 'ready' && m.o.status !== 'cancelled' && K.pickup(m.o).collectable))}
-        ${col('All ready', 'ready', model.filter((m) => m.o.status === 'ready'))}</div>`;
+      html = `<div class="cols two" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
+        ${col('Preparing', '', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
+        ${col('Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small>', 'ready', model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable)))}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
     } else if (p.layout === 'summary' && kind === 'station') {
@@ -569,9 +569,9 @@
   // customer-facing pickup board (no buttons)
   K.routes.board = function () {
     K.applyTheme(K.prefs('board', { theme: 'dark' }));
-    document.getElementById('app').innerHTML = `<div class="pboard three"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
-      <section class="part"><h2>Collect now</h2><div class="sub">Part of your order is ready</div><div class="nums" id="pb-part"></div></section>
-      <section class="ready"><h2>All ready</h2><div class="nums" id="pb-ready"></div></section></div>
+    document.getElementById('app').innerHTML = `<div class="pboard two"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
+      <section class="serving"><h2>Now serving</h2><div class="nums" id="pb-ready"></div>
+      <div class="pb-key"><span class="k part"></span>Part of your order is ready <span class="k all"></span>Whole order ready</div></section></div>
       <a href="#/" class="iconbtn" style="position:fixed;left:8px;bottom:8px;opacity:.25">←</a>`;
     K.$('.pboard').onclick = () => { K.unlockAudio(); K.keepAwake(); document.documentElement.requestFullscreen?.().catch(() => {}); };
     K.routes.board.onData();
@@ -581,13 +581,16 @@
   K.routes.board.onData = function () {
     const prep = K.$('#pb-prep'), ready = K.$('#pb-ready'); if (!prep) return;
     const live = st.orders.filter((o) => ['new', 'preparing', 'at_window', 'ready'].includes(o.status)).sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
-    const r = live.filter((o) => o.status === 'ready');
     const pk = new Map(live.map((o) => [o.id, K.pickup(o)]));
-    const part = live.filter((o) => o.status !== 'ready' && pk.get(o.id).collectable);
-    prep.innerHTML = live.filter((o) => o.status !== 'ready' && !pk.get(o.id).collectable).map((o) => `<div class="num">${esc(String(o.order_no ?? o.kds_seq))}${pk.get(o.id).readyOrDone ? `<small>${pk.get(o.id).readyOrDone} of ${pk.get(o.id).total} collected</small>` : ''}</div>`).join('');
-    K.$('#pb-part').innerHTML = part.map((o) => `<div class="num">${esc(String(o.order_no ?? o.kds_seq))}<small>${pk.get(o.id).readyOrDone} of ${pk.get(o.id).total}</small></div>`).join('');
-    ready.innerHTML = r.map((o) => `<div class="num ${Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${esc(String(o.order_no ?? o.kds_seq))}</div>`).join('');
-    const ids = new Set([...r, ...part].map((o) => o.id + ':' + pk.get(o.id).readyOrDone));
+    const serving = live.filter((o) => o.status === 'ready' || pk.get(o.id).collectable);
+    const num = (o) => esc(String(o.order_no ?? o.kds_seq));
+    prep.innerHTML = live.filter((o) => !serving.includes(o)).map((o) => `<div class="num">${num(o)}</div>`).join('');
+    ready.innerHTML = serving.map((o) => {
+      const k = pk.get(o.id);
+      if (o.status === 'ready') return `<div class="num all ${Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${num(o)}</div>`;
+      return `<div class="num part">${num(o)}<small>${k.readyOrDone} of ${k.total} ready</small></div>`;
+    }).join('');
+    const ids = new Set(serving.map((o) => o.id + ':' + pk.get(o.id).readyOrDone));
     if (boardSeen && [...ids].some((id) => !boardSeen.has(id))) K.beep('new');
     boardSeen = ids;
   };

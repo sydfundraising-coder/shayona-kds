@@ -168,6 +168,11 @@
     syncCatalog() { return this._fn('square-sync', { action: 'catalog' }); }
     syncOrders(minutes = 60) { return this._fn('square-sync', { action: 'orders', minutes }); }
     testSquare() { return this._fn('square-sync', { action: 'test' }); }
+    // ---- sales history (Reports → Sales & trends)
+    importSales(from, to) { return this._fn('square-sync', { action: 'sales', from, to }); }
+    async salesReport(from, to) { return this._chk(await this.sb.rpc('kds_sales_report', { p_from: from, p_to: to })); }
+    async salesMonthly(from, to) { return this._chk(await this.sb.rpc('kds_sales_monthly', { p_from: from, p_to: to })); }
+    async salesCoverage() { return this._chk(await this.sb.rpc('kds_sales_coverage')); }
     async closeOpenOrders(mins = 0) { return this._chk(await this.sb.rpc('kds_close_open_orders', { p_older_than_minutes: mins })); }
     async saveStation(s) {
       const row = { name: s.name, colour: s.colour, sort: +s.sort || 0, warn_minutes: s.warn_minutes || null, late_minutes: s.late_minutes || null, active: s.active !== false };
@@ -183,6 +188,9 @@
     }
     async setCategoryHold(catId, hold) { return this._chk(await this.sb.from('categories').update({ hold: !!hold }).eq('square_id', catId)); }
     async setItemHold(itemId, hold) { return this._chk(await this.sb.from('catalog_items').update({ hold }).eq('item_id', itemId)); }
+    async setCategorySkipWindow(catId, v) { this._chk(await this.sb.from('categories').update({ skip_window: !!v }).eq('square_id', catId)); return this._applySkip(); }
+    async setItemSkipWindow(itemId, v) { this._chk(await this.sb.from('catalog_items').update({ skip_window: v }).eq('item_id', itemId)); return this._applySkip(); }
+    async _applySkip() { const { data, error } = await this.sb.rpc('kds_apply_skip_window'); if (error) console.warn(error.message); return data; }
     async saveSetting(key, value) {
       return this._chk(await this.sb.from('kds_settings').upsert({ key, value, updated_at: iso(now()) }));
     }
@@ -242,7 +250,7 @@
         plate_keywords: ['plate', 'dine in', 'eat in', 'for here'],
         default_pack: 'PLATE', online_pack: 'BOX',
         online_sources: ['square online', 'online', 'uber', 'doordash', 'menulog', 'website'],
-        timer_warn_minutes: 5, timer_late_minutes: 10, front_clear_minutes: 10,
+        timer_warn_minutes: 5, auto_close_time: '23:00', timer_late_minutes: 10, front_clear_minutes: 10,
         availability_mode: 'inventory', available_stock: 999,
         pack_hidden_categories: ['HOT BEVERAGES', 'BEVERAGES'],
         menu_banner: '', menu_notice: { active: false, title: '', message: '', hours: false },
@@ -267,7 +275,8 @@
     _route(cat) {
       const c = this.categories.find((x) => x.square_id === cat.category_id);
       const noPrep = cat.no_prep ?? c?.no_prep ?? false;
-      return { station_id: noPrep ? null : (cat.station_id || c?.station_id || null), no_prep: noPrep };
+      const skipWin = cat.skip_window ?? c?.skip_window ?? false;
+      return { station_id: noPrep ? null : (cat.station_id || c?.station_id || null), no_prep: noPrep, skip_window: !!skipWin };
     }
     _pickLines(rand) {
       const food = this.catalog.filter((c) => c.available && !['SWEETS & PACKAGED'].includes(c.category_name));
@@ -306,11 +315,12 @@
       this.orders.push(o);
       (opts.lines || this._pickLines(rand)).forEach((l, idx) => {
         const r = this._route(l.it);
-        const skip = !r.station_id && !r.no_prep;   // not assigned: straight to the front counter
+        const skip = (!r.station_id && !r.no_prep) || (r.no_prep && r.skip_window);   // straight to the front counter
+        const skipWin = r.skip_window && !skip && !r.no_prep;
         const pack = l.mods.some((m) => /take ?away/i.test(m)) ? 'BOX' : online ? 'BOX' : 'PLATE';
         this.items.push({
           id: uuid(), order_id: o.id, square_uid: 'u' + idx, variation_id: l.it.variation_id, item_name: l.it.item_name,
-          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep || skip,
+          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep || skip, skip_window: skipWin,
           qty: l.qty, modifiers: l.mods, note: l.note, pack, qty_prep: r.no_prep || skip ? l.qty : 0, qty_window: skip ? l.qty : 0, qty_front: 0,
           removed: false, sort: idx, created_at: iso(at), prepared_at: r.no_prep || skip ? iso(at) : null, window_at: skip ? iso(at) : null, collected_at: null,
         });
@@ -399,7 +409,10 @@
           if (needW > 0) { it.qty_window += needW; if (it.qty_window >= it.qty) it.window_at = it.window_at || w; ev('window', needW, true); }
         }
       }
-      if (stage === 'prep') { it.qty_prep += n; if (it.qty_prep >= it.qty) it.prepared_at = it.prepared_at || w; }
+      if (stage === 'prep') {
+        it.qty_prep += n; if (it.qty_prep >= it.qty) it.prepared_at = it.prepared_at || w;
+        if (it.skip_window) { it.qty_window = Math.min(it.qty, it.qty_window + n); if (it.qty_window >= it.qty) it.window_at = it.window_at || w; }
+      }
       else if (stage === 'window') { it.qty_window += n; if (it.qty_window >= it.qty) it.window_at = it.window_at || w; }
       else { it.qty_front += n; if (it.qty_front >= it.qty) it.collected_at = it.collected_at || w; }
       ev(stage, n, !!force);
@@ -437,7 +450,8 @@
       const e = this.events.find((x) => x.id === eventId);
       if (!e || e.undone || e.qty <= 0) throw new Error('Nothing to recall');
       const it = this.items.find((i) => i.id === e.order_item_id);
-      if (e.stage === 'prep') { if (it.qty_prep - e.qty < it.qty_window) throw new Error('Already finished at the window — recall it there first'); it.qty_prep -= e.qty; it.prepared_at = null; }
+      if (e.stage === 'prep' && it.skip_window) { if (it.qty_window - e.qty < it.qty_front) throw new Error('Already collected — recall it on the front screen first'); it.qty_prep -= e.qty; it.qty_window = Math.max(0, it.qty_window - e.qty); it.prepared_at = null; it.window_at = null; }
+      else if (e.stage === 'prep') { if (it.qty_prep - e.qty < it.qty_window) throw new Error('Already finished at the window — recall it there first'); it.qty_prep -= e.qty; it.prepared_at = null; }
       else if (e.stage === 'window') { if (it.qty_window - e.qty < it.qty_front) throw new Error('Already collected — recall it on the front screen first'); it.qty_window -= e.qty; it.window_at = null; }
       else { it.qty_front -= e.qty; it.collected_at = null; }
       e.undone = true;
@@ -483,6 +497,67 @@
     async deleteMedia(id) { this.media = this.media.filter((m) => m.id !== id); }
     async syncCatalog() { await new Promise((r) => setTimeout(r, 600)); return { ok: true, categories: this.categories.length, variations: this.catalog.length, demo: true }; }
     async syncOrders() { return { ok: true, ingested: 0, demo: true }; }
+    // ---- demo sales history: two years of made-up but realistic trading, built from the real menu
+    _salesDay(day) {
+      this._sd = this._sd || new Map();
+      if (this._sd.has(day)) return this._sd.get(day);
+      let h = 2166136261; for (const ch of day) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+      let seed = h >>> 0; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      const d = new Date(day + 'T12:00:00'), dow = d.getDay();
+      const growth = Math.pow(1.11, (d - new Date('2024-10-01')) / (365 * 864e5));        // ~11% a year
+      const season = 1 + 0.12 * Math.cos(((d.getMonth() + 1) - 1) / 12 * 2 * Math.PI);   // busier in summer
+      const wk = [1.45, 0.8, 0.85, 0.9, 0.95, 1.2, 1.55][dow];
+      const nOrders = Math.round(95 * growth * season * wk * (0.85 + rnd() * 0.3));
+      if (!this._menu) this._menu = this.catalog.filter((c) => c.price_cents > 0 && !/SWEETS/.test(c.category_name || ''));
+      const menu = this._menu, hourW = [0, 0, 0, 0, 0, 0, 0, 1, 3, 4, 5, 8, 14, 12, 7, 5, 5, 6, 9, 8, 4, 1, 0, 0];
+      const hourSum = hourW.reduce((a, b) => a + b, 0);
+      const orders = [];
+      for (let i = 0; i < nOrders; i++) {
+        let r = rnd() * hourSum, hour = 0; while (r > hourW[hour]) { r -= hourW[hour]; hour++; }
+        const online = rnd() < 0.12 + 0.06 * (growth - 1) * 4;
+        const lines = []; const n = 1 + Math.floor(rnd() * rnd() * 4);
+        for (let k = 0; k < n; k++) {
+          const it = menu[Math.floor(Math.pow(rnd(), 1.6) * menu.length)];
+          const qty = rnd() < 0.85 ? 1 : 2;
+          lines.push({ name: it.item_name, cat: it.category_name || 'Other', qty, net: it.price_cents * qty });
+        }
+        orders.push({ id: day + '-' + i, hour, ch: online ? 'Online' : 'Walk-in', lines });
+      }
+      this._sd.set(day, orders); return orders;
+    }
+    _days(from, to) { const out = []; const d = new Date(from + 'T12:00:00'), e = new Date(to + 'T12:00:00'); const today = new Date();
+      for (; d <= e && d <= today; d.setDate(d.getDate() + 1)) out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); return out; }
+    async importSales(from, to) { await new Promise((r) => setTimeout(r, 150)); return { ok: true, orders: this._days(from, to).reduce((a, d) => a + this._salesDay(d).length, 0), lines: 0, demo: true }; }
+    async salesCoverage() { return { first_day: '2024-10-01', last_day: this._days('2024-10-01', '2099-01-01').pop(), lines: 1, imported_at: iso(now()) }; }
+    async salesMonthly(from, to) {
+      const m = new Map();
+      this._days(from, to).forEach((d) => { const k = d.slice(0, 7); if (!m.has(k)) m.set(k, { m: k, orders: 0, units: 0, sales: 0, days: 0 }); const x = m.get(k); x.days++;
+        this._salesDay(d).forEach((o) => { x.orders++; o.lines.forEach((l) => { x.units += l.qty; x.sales += l.net; }); }); });
+      return [...m.values()];
+    }
+    async salesReport(from, to) {
+      const T = { orders: 0, units: 0, sales: 0 }, byDay = [], byHour = new Map(), byDow = new Map(), heat = new Map(), ch = new Map(), cat = new Map(), items = new Map();
+      const add = (map, k, init) => { if (!map.has(k)) map.set(k, { ...init }); return map.get(k); };
+      this._days(from, to).forEach((d) => {
+        const dow = ((new Date(d + 'T12:00:00').getDay() + 6) % 7) + 1, D = { d, orders: 0, units: 0, sales: 0 };
+        add(byDow, dow, { dow, orders: 0, sales: 0, days: 0 }).days++;
+        const seenHours = new Set();
+        this._salesDay(d).forEach((o) => {
+          const net = o.lines.reduce((a, l) => a + l.net, 0), units = o.lines.reduce((a, l) => a + l.qty, 0);
+          T.orders++; T.units += units; T.sales += net; D.orders++; D.units += units; D.sales += net;
+          const H = add(byHour, o.hour, { h: o.hour, orders: 0, units: 0, sales: 0 }); H.orders++; H.units += units; H.sales += net;
+          const W = byDow.get(dow); W.orders++; W.sales += net;
+          const hk = dow + ':' + o.hour, X = add(heat, hk, { dow, h: o.hour, orders: 0, days: 0 }); X.orders++; if (!seenHours.has(hk)) { seenHours.add(hk); X.days++; }
+          const C = add(ch, o.ch, { ch: o.ch, orders: 0, sales: 0 }); C.orders++; C.sales += net;
+          o.lines.forEach((l) => { const c = add(cat, l.cat, { name: l.cat, units: 0, sales: 0 }); c.units += l.qty; c.sales += l.net;
+            const it = add(items, l.name, { name: l.name, cat: l.cat, units: 0, sales: 0, orders: 0 }); it.units += l.qty; it.sales += l.net; it.orders++; });
+        });
+        if (D.orders) byDay.push(D);
+      });
+      const srt = (m, k) => [...m.values()].sort((a, b) => a[k] - b[k]);
+      return { from, to, totals: T, discounts: 0, by_day: byDay, by_hour: srt(byHour, 'h'), by_weekday: srt(byDow, 'dow'), heat: [...heat.values()],
+        by_channel: [...ch.values()], by_category: srt(cat, 'sales').reverse(), items: srt(items, 'sales').reverse().slice(0, 200) };
+    }
     async testSquare() { return { ok: true, location: 'Shayona Cafe (demo)', business: 'BAPS Shayona Cafe', timezone: 'Australia/Sydney' }; }
     async closeOpenOrders() {
       let n = 0;
@@ -508,6 +583,8 @@
     async saveSetting(key, value) { this.settings[key] = value; }
     async setCategoryHold(catId, hold) { this.categories.find((c) => c.square_id === catId).hold = !!hold; }
     async setItemHold(itemId, hold) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.hold = hold)); }
+    async setCategorySkipWindow(catId, v) { this.categories.find((c) => c.square_id === catId).skip_window = !!v; }
+    async setItemSkipWindow(itemId, v) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.skip_window = v)); }
     async reportRows(fromIso, toIso) {
       const f = new Date(fromIso), t = new Date(toIso);
       const sName = Object.fromEntries(this.stations.map((s) => [s.id, s.name]));

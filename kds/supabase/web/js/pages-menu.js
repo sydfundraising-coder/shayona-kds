@@ -26,7 +26,7 @@
     const tab = r.q.get('tab') || 'items';
     const tabs = [['items', 'Items & availability'], ['screens', 'TV screens, notices & presets'], ['media', 'Photos & videos']];
     app().innerHTML = `<div class="topbar"><a class="iconbtn" href="#/">←</a><div class="title">Shayona Cafe · Menu control</div><span class="grow"></span>
-      <a class="iconbtn" href="menu-board.html" target="_blank" rel="noopener">TV menu ↗</a><a class="iconbtn" href="menu-slideshow.html" target="_blank" rel="noopener">Slideshow ↗</a>
+      <a class="iconbtn" href="/menu-board.html" target="_blank" rel="noopener">TV menu ↗</a><a class="iconbtn" href="/menu-slideshow.html" target="_blank" rel="noopener">Slideshow ↗</a>
       ${K.themeBtn('menu', ['warm', 'dark'])}<span class="conn ${st.connected ? '' : 'off'}"></span><span class="clock"></span></div>
       <div class="page"><div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="mtab"></div></div>
       ${api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : ''}`;
@@ -162,7 +162,7 @@
     K.$('#mtab').innerHTML = `<div class="mm-grid">
       <div class="card"><h2 style="margin-top:0">TV screen links</h2>
         <p class="muted" style="font-size:.88em">Open on the TV's browser and go full screen. They update by themselves and don't need a login or a computer running in the café.</p>
-        ${[['TV menu board', base + 'menu-board.html'], ['Photo / video slideshow', base + 'menu-slideshow.html'], ['Order pickup board', base + '#/board']].map(([l, u]) =>
+        ${[['TV menu board', base + 'tv'], ['Photo / video slideshow', base + 'slideshow'], ['Order pickup board', base + '#/board']].map(([l, u]) =>
           `<div class="row" style="margin-bottom:8px;flex-wrap:wrap"><b style="min-width:180px">${l}</b><code style="font-size:.8em;word-break:break-all" class="grow">${esc(u)}</code>
           <button class="btn sm" data-copy="${esc(u)}">Copy</button><a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">Open</a></div>`).join('')}
       </div>

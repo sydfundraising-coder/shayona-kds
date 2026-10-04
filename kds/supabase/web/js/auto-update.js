@@ -7,7 +7,7 @@
   if (!/^https?:$/.test(location.protocol)) return;             // not on a website (e.g. the demo preview)
   const EVERY = 60e3;
   const files = () => {
-    const urls = [location.pathname === '/' || !/\.html?$/.test(location.pathname) ? '/' : location.pathname];
+    const urls = [location.pathname || '/'];
     document.querySelectorAll('script[src],link[rel="stylesheet"][href]').forEach((el) => {
       const u = new URL(el.src || el.href, location.href);
       if (u.origin === location.origin) urls.push(u.pathname);
