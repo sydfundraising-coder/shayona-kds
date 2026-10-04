@@ -294,12 +294,13 @@
       this.orders.push(o);
       (opts.lines || this._pickLines(rand)).forEach((l, idx) => {
         const r = this._route(l.it);
+        const skip = !r.station_id && !r.no_prep;   // not assigned: straight to the front counter
         const pack = l.mods.some((m) => /take ?away/i.test(m)) ? 'BOX' : online ? 'BOX' : 'PLATE';
         this.items.push({
           id: uuid(), order_id: o.id, square_uid: 'u' + idx, variation_id: l.it.variation_id, item_name: l.it.item_name,
-          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep,
-          qty: l.qty, modifiers: l.mods, note: l.note, pack, qty_prep: r.no_prep ? l.qty : 0, qty_window: 0, qty_front: 0,
-          removed: false, sort: idx, created_at: iso(at), prepared_at: r.no_prep ? iso(at) : null, window_at: null, collected_at: null,
+          variation_name: null, category_name: l.it.category_name, station_id: r.station_id, no_prep: r.no_prep || skip,
+          qty: l.qty, modifiers: l.mods, note: l.note, pack, qty_prep: r.no_prep || skip ? l.qty : 0, qty_window: skip ? l.qty : 0, qty_front: 0,
+          removed: false, sort: idx, created_at: iso(at), prepared_at: r.no_prep || skip ? iso(at) : null, window_at: skip ? iso(at) : null, collected_at: null,
         });
       });
       // move older demo orders along a bit so every screen has something
@@ -357,7 +358,7 @@
       const its = this.items.filter((i) => i.order_id === orderId && !i.removed);
       if (!its.length) return;
       const allP = its.every((i) => i.qty_prep >= i.qty), allW = its.every((i) => i.qty_window >= i.qty), allF = its.every((i) => i.qty_front >= i.qty);
-      const any = its.some((i) => (i.qty_prep > 0 && !i.no_prep) || i.qty_window > 0);
+      const any = its.some((i) => (i.qty_prep > 0 && !i.no_prep) || (i.qty_window > 0 && !i.no_prep) || i.qty_front > 0);
       o.status = allF ? 'completed' : allW ? 'ready' : allP ? 'at_window' : any ? 'preparing' : 'new';
       const w = iso(when);
       o.first_bump_at = any ? o.first_bump_at || w : null;

@@ -189,7 +189,7 @@
           <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
-        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They will show on the Window screen marked "No station". <a href="#/admin?tab=routing">Fix routing →</a></div>` : ''}
+        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
         <div class="tiles">
           ${s.map((x) => `<a class="tile" style="--c:${K.esc(x.colour)}" href="#/station/${x.id}"><b>${K.esc(x.name)}</b><span>Shows only items made at this station</span></a>`).join('') || '<div class="muted">No stations yet — add them in Admin.</div>'}

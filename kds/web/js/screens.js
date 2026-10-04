@@ -132,7 +132,8 @@
     for (const o of st.orders) {
       if (o.status === 'completed' || o.status === 'ready') continue;
       if (o.status === 'cancelled' && !showCancelled(o)) continue;
-      const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed);
+      // items with no station don't go through the window (they're ready at the front counter)
+      const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && (i.station_id || i.no_prep));
       if (!items.some((i) => i.qty_window < i.qty)) continue;
       out.push({ o, items, pending: items.filter((i) => i.qty_prep > i.qty_window) });
     }
@@ -224,9 +225,9 @@
       if (m.o.status === 'cancelled') return;
       m.items.forEach((it) => {
         const key = it.item_name + '|' + (it.variation_name || '');
-        const unrouted = !it.station_id && !it.no_prep;
-        const ready = unrouted ? it.qty - it.qty_window : it.qty_prep - it.qty_window;
-        const later = unrouted ? 0 : it.qty - it.qty_prep;
+        const unrouted = false;
+        const ready = it.qty_prep - it.qty_window;
+        const later = it.qty - it.qty_prep;
         if (later > 0) coming.set(key, (coming.get(key) || 0) + later);
         if (ready <= 0) return;
         if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, rows: [], ready: 0 });
@@ -418,13 +419,11 @@
       if (act === 'bump') {
         const it = findItem(el.dataset.item); const o = it && findOrder(it.order_id);
         const force = el.dataset.force === '1';
-        if (force && !(await K.confirm('Finish without a station?', `<b>${esc(it.item_name)}</b> has no station set in Admin, so no one bumped it in the kitchen. Mark it made and finished?`, 'Finish it'))) return;
         const n = await api.bump(el.dataset.item, el.dataset.stage, el.dataset.n === 'all' ? null : +el.dataset.n, ctx.key, force);
         if (n) K.toast(`${n} × ${it?.item_name || 'item'} — ${ono(o || {})}`, { undo: () => undoItem(ctx, el.dataset.item, el.dataset.stage) });
         else K.toast('Nothing left to bump on that item');
       } else if (act === 'batch') {
         const parts = el.dataset.items.split('|').map((x) => x.split(':'));
-        if (el.dataset.force === '1' && !(await K.confirm('Finish without a station?', 'Some of these have no station set, so nobody bumped them in the kitchen. Finish them anyway?', 'Finish'))) return;
         let n = 0;
         for (const [id, q] of parts) n += await api.bump(id, 'window', +q, ctx.key, el.dataset.force === '1');
         const it = findItem(parts[0][0]);

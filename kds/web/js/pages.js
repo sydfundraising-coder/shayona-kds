@@ -122,7 +122,7 @@
     const byItem = new Map(); items.forEach((c) => { if (!byItem.has(c.item_id)) byItem.set(c.item_id, c); });
     K.$('#tab').innerHTML = `
       <p class="muted">Decide which station makes each item. Set it once per <b>category</b>, then override single items if needed (e.g. bottled drinks = no prep).
-      "No prep" items skip the stations and go straight to the Window.</p>
+      "No prep" items skip the stations and go straight to the Window. Items left <b>Not assigned</b> skip the kitchen <i>and</i> the Window — they're ready to hand over at the front counter straight away (e.g. bottled water).</p>
       <h2>By category</h2>
       <div class="tablewrap" style="max-height:none"><table class="t"><thead><tr><th>Square category</th><th class="n">Items</th><th>Station</th><th title="Ready items wait at the counter until the whole order is ready (e.g. ice cream, hot drinks)">Hold until order complete</th></tr></thead><tbody>
       ${cats.filter((c) => usedCats.has(c.square_id)).map((c) => `<tr data-cat="${esc(c.square_id)}" ${!c.station_id && !c.no_prep ? 'style="box-shadow:inset 4px 0 0 var(--late)"' : ''}><td><b>${esc(c.name)}</b></td>
