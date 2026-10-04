@@ -171,6 +171,10 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
       for (const v of d.variations ?? []) {
         const vd = v.item_variation_data ?? {};
         const ov = (vd.location_overrides ?? []).find((o: any) => o.location_id === loc) ?? {};
+        const price = ov.price_money?.amount ?? vd.price_money?.amount ?? null;
+        const desc = d.description_plaintext ||
+          (d.description_html ? String(d.description_html).replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim() : "") ||
+          d.description || null;
         rows.push({
           variation_id: v.id,
           item_id: it.id,
@@ -178,6 +182,10 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
           variation_name: vd.name && vd.name !== "Regular" ? vd.name : null,
           category_id: catId,
           category_name: catId ? catName.get(catId) ?? null : null,
+          category_ids: [...new Set([catId, ...(d.categories ?? []).map((c: any) => c.id)].filter(Boolean))],
+          price_cents: price == null ? null : Number(price),
+          description: desc,
+          online_visible: d.ecom_visibility ? d.ecom_visibility === "VISIBLE" : null,
           available: !ov.sold_out,
           is_deleted: false,
           updated_at: new Date().toISOString(),
@@ -202,54 +210,102 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
 }
 
 // ======================= function =======================
-// Switch a menu item on/off at the café, in Square and in the KDS.
-//   POST { item_id: "...", available: false }
+// Switch menu items on/off at the café, in Square and in the KDS (one item, many, or a whole preset).
+//   POST { item_id: "...", available: false }                       → every variation of one item
+//   POST { variation_ids: ["..",".."], available: true }            → several variations
+//   POST { changes: [{ variation_id: "..", available: true }, …] }  → mixed (used by presets)
+// Returns { ok, applied, failed: [{ name, reason }], mode }
 //
 // Square does not let apps tick "Sold out" directly (that field is read-only), so:
-//   availability_mode = "inventory" (default): stock count at the café is set to 0 → Square shows it as
-//       Sold Out on POS and Square Online. Switching back on restores the previous stock count (or
-//       `available_stock`) and turns stock tracking back off if it wasn't on before.
+//   availability_mode = "inventory" (default): the café stock count is set to 0 → Square shows Sold Out on
+//       POS and Square Online. Switching back on restores the previous stock count (or `available_stock`),
+//       and turns stock tracking back off if it wasn't on before.
 //   availability_mode = "hide": the item is removed from / re-added to the café location.
 
 const uid = () => crypto.randomUUID();
+const chunks = <T>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+const short = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Square [^:]*:\s*/, "").slice(0, 160);
 
-async function setCount(variationId: string, loc: string, qty: number) {
-  await square("/inventory/changes/batch-create", {
-    body: {
-      idempotency_key: uid(),
-      changes: [{
-        type: "PHYSICAL_COUNT",
-        physical_count: {
-          catalog_object_id: variationId, location_id: loc, state: "IN_STOCK",
-          quantity: String(qty), occurred_at: new Date().toISOString(),
-        },
-      }],
-    },
-  });
+async function retrieve(ids: string[]) {
+  const out = new Map<string, any>();
+  for (const c of chunks(ids, 100)) {
+    const r = await square("/catalog/batch-retrieve", { body: { object_ids: c } });
+    for (const o of r.objects ?? []) out.set(o.id, o);
+  }
+  return out;
 }
 
-async function setTracking(variationId: string, loc: string, on: boolean) {
-  const { object } = await square(`/catalog/object/${variationId}`);
-  const vd = object.item_variation_data;
-  const overrides = (vd.location_overrides ?? []).filter((o: any) => o.location_id !== loc);
-  const mine = (vd.location_overrides ?? []).find((o: any) => o.location_id === loc) ?? { location_id: loc };
-  overrides.push({ ...mine, track_inventory: on });
-  vd.location_overrides = overrides.map(({ sold_out, sold_out_valid_until, ...rest }: any) => rest);
-  await square("/catalog/object", { body: { idempotency_key: uid(), object } });
+function withTracking(obj: any, loc: string, on: boolean) {
+  const vd = obj.item_variation_data ?? {};
+  const list = (vd.location_overrides ?? []).map(({ sold_out, sold_out_valid_until, ...rest }: any) => rest);
+  const i = list.findIndex((o: any) => o.location_id === loc);
+  if (i >= 0) list[i] = { ...list[i], track_inventory: on }; else list.push({ location_id: loc, track_inventory: on });
+  return { type: "ITEM_VARIATION", id: obj.id, version: obj.version, item_variation_data: { ...vd, location_overrides: list } };
 }
-
-async function isTracked(variationId: string, loc: string) {
-  const { object } = await square(`/catalog/object/${variationId}`);
-  const vd = object.item_variation_data ?? {};
+const isTracked = (obj: any, loc: string) => {
+  const vd = obj.item_variation_data ?? {};
   const ov = (vd.location_overrides ?? []).find((o: any) => o.location_id === loc);
   return !!(ov?.track_inventory ?? vd.track_inventory);
+};
+
+// Turn tracking on/off for many variations. Re-reads the latest version and retries on conflicts
+// (head office edits the shared catalogue often, so versions go stale quickly).
+async function setTracking(ids: string[], loc: string, on: boolean, failed: Map<string, string>) {
+  let todo = ids;
+  for (let attempt = 0; attempt < 4 && todo.length; attempt++) {
+    const objs = await retrieve(todo);
+    const retry: string[] = [];
+    for (const c of chunks(todo, 25)) {
+      const batch = c.filter((id) => objs.has(id)).map((id) => withTracking(objs.get(id), loc, on));
+      c.filter((id) => !objs.has(id)).forEach((id) => failed.set(id, "Not found in Square"));
+      if (!batch.length) continue;
+      try {
+        await square("/catalog/batch-upsert", { body: { idempotency_key: uid(), batches: [{ objects: batch }] } });
+      } catch (e) {
+        if (/VERSION_MISMATCH|version|conflict/i.test(String(e))) retry.push(...c);
+        else for (const o of batch) {           // one bad item shouldn't block the rest
+          try { await square("/catalog/batch-upsert", { body: { idempotency_key: uid(), batches: [{ objects: [o] }] } }); }
+          catch (e2) { failed.set(o.id, "Could not change stock tracking — " + short(e2)); }
+        }
+      }
+    }
+    todo = retry;
+  }
+  todo.forEach((id) => failed.set(id, "Square kept reporting a newer version — try again"));
 }
 
-async function currentCount(variationId: string, loc: string) {
-  const r = await square("/inventory/counts/batch-retrieve", {
-    body: { catalog_object_ids: [variationId], location_ids: [loc], states: ["IN_STOCK"] },
+async function setCounts(list: { id: string; qty: number }[], loc: string, failed: Map<string, string>) {
+  const ok: string[] = [];
+  const now = new Date().toISOString();
+  const change = (x: { id: string; qty: number }) => ({
+    type: "PHYSICAL_COUNT",
+    physical_count: { catalog_object_id: x.id, location_id: loc, state: "IN_STOCK", quantity: String(x.qty), occurred_at: now },
   });
-  return Number(r.counts?.[0]?.quantity ?? 0);
+  for (const c of chunks(list, 100)) {
+    try {
+      await square("/inventory/changes/batch-create", { body: { idempotency_key: uid(), changes: c.map(change) } });
+      ok.push(...c.map((x) => x.id));
+    } catch {
+      for (const x of c) {
+        try { await square("/inventory/changes/batch-create", { body: { idempotency_key: uid(), changes: [change(x)] } }); ok.push(x.id); }
+        catch (e) { failed.set(x.id, short(e)); }
+      }
+    }
+  }
+  return ok;
+}
+
+async function currentCounts(ids: string[], loc: string) {
+  const m = new Map<string, number>();
+  for (const c of chunks(ids, 100)) {
+    let cursor: string | undefined;
+    do {
+      const r = await square("/inventory/counts/batch-retrieve", { body: { catalog_object_ids: c, location_ids: [loc], states: ["IN_STOCK"], cursor } });
+      for (const x of r.counts ?? []) m.set(x.catalog_object_id, Number(x.quantity));
+      cursor = r.cursor;
+    } while (cursor);
+  }
+  return m;
 }
 
 async function setPresence(itemId: string, loc: string, present: boolean) {
@@ -281,42 +337,88 @@ Deno.serve(async (req) => {
   const db = admin();
   try {
     await requireUser(req, db, false);
-    const { item_id, available } = await req.json();
-    if (!item_id || typeof available !== "boolean") return json({ error: "item_id and available are required" }, 400);
-
+    const body = await req.json();
     const s = await loadSettings(db);
     const loc = s.square_location_id as string;
     const mode = s.availability_mode ?? "inventory";
     const fallbackStock = Number(s.available_stock ?? 999);
 
-    const { data: vars, error } = await db.from("catalog_items").select("*").eq("item_id", item_id);
-    if (error) throw error;
-    if (!vars?.length) return json({ error: "Item not found — run a catalog sync" }, 404);
+    // ---- normalise the request into [{variation_id, available}]
+    let wanted: { variation_id: string; available: boolean }[] = [];
+    if (body.item_id) {
+      const { data } = await db.from("catalog_items").select("variation_id").eq("item_id", body.item_id);
+      wanted = (data ?? []).map((r: any) => ({ variation_id: r.variation_id, available: !!body.available }));
+    } else if (Array.isArray(body.variation_ids)) {
+      wanted = body.variation_ids.map((id: string) => ({ variation_id: id, available: !!body.available }));
+    } else if (Array.isArray(body.changes)) {
+      wanted = body.changes.map((c: any) => ({ variation_id: c.variation_id, available: !!c.available }));
+    }
+    if (!wanted.length) return json({ error: "Nothing to change — run a menu sync if the item is missing" }, 400);
+
+    const rows = new Map<string, any>();
+    for (const c of chunks(wanted.map((w) => w.variation_id), 200)) {
+      const { data, error } = await db.from("catalog_items").select("*").in("variation_id", c);
+      if (error) throw error;
+      (data ?? []).forEach((r: any) => rows.set(r.variation_id, r));
+    }
+    const failed = new Map<string, string>();
+    const name = (id: string) => { const r = rows.get(id); return r ? r.item_name + (r.variation_name ? " · " + r.variation_name : "") : id; };
+    wanted.filter((w) => !rows.has(w.variation_id)).forEach((w) => failed.set(w.variation_id, "Not in the KDS menu — run Sync menu"));
+    // only real changes (keeps presets fast)
+    const delta = wanted.filter((w) => rows.has(w.variation_id) && rows.get(w.variation_id).available !== w.available);
+    let applied: string[] = [];
 
     if (mode === "hide") {
-      await setPresence(item_id, loc, available);
-    } else {
-      for (const v of vars) {
-        if (!available) {
-          const tracked = await isTracked(v.variation_id, loc);
-          const before = tracked ? await currentCount(v.variation_id, loc) : null;
-          await db.from("catalog_items")
-            .update({ stock_tracked_before: tracked, stock_before: before })
-            .eq("variation_id", v.variation_id);
-          if (!tracked) await setTracking(v.variation_id, loc, true);
-          await setCount(v.variation_id, loc, 0);
-        } else {
-          const restore = v.stock_tracked_before && Number(v.stock_before) > 0 ? Number(v.stock_before) : fallbackStock;
-          await setCount(v.variation_id, loc, restore);
-          if (v.stock_tracked_before === false) await setTracking(v.variation_id, loc, false);
-        }
+      const byItem = new Map<string, boolean>();
+      delta.forEach((w) => byItem.set(rows.get(w.variation_id).item_id, w.available));
+      for (const [itemId, on] of byItem) {
+        try {
+          await setPresence(itemId, loc, on);
+          applied.push(...delta.filter((w) => rows.get(w.variation_id).item_id === itemId).map((w) => w.variation_id));
+        } catch (e) { delta.filter((w) => rows.get(w.variation_id).item_id === itemId).forEach((w) => failed.set(w.variation_id, short(e))); }
       }
+    } else if (delta.length) {
+      const objs = await retrieve(delta.map((w) => w.variation_id));
+      const usable = delta.filter((w) => {
+        const o = objs.get(w.variation_id);
+        if (!o) { failed.set(w.variation_id, "Not found in Square"); return false; }
+        if (o.item_variation_data?.stockable === false) { failed.set(w.variation_id, "Not a stock item — manage this one directly in Square"); return false; }
+        return true;
+      });
+      const offs = usable.filter((w) => !w.available), ons = usable.filter((w) => w.available);
+
+      // remember the real stock before switching off, so it can be restored
+      const trackedOff = offs.filter((w) => isTracked(objs.get(w.variation_id), loc)).map((w) => w.variation_id);
+      const counts = trackedOff.length ? await currentCounts(trackedOff, loc) : new Map<string, number>();
+      for (const w of offs) {
+        const tracked = trackedOff.includes(w.variation_id);
+        await db.from("catalog_items").update({ stock_tracked_before: tracked, stock_before: tracked ? counts.get(w.variation_id) ?? null : null })
+          .eq("variation_id", w.variation_id);
+      }
+      // stock tracking must be on before a count can make it "sold out"
+      const needTracking = usable.filter((w) => !isTracked(objs.get(w.variation_id), loc)).map((w) => w.variation_id);
+      if (needTracking.length) await setTracking(needTracking, loc, true, failed);
+
+      const list = usable.filter((w) => !failed.has(w.variation_id)).map((w) => {
+        const r = rows.get(w.variation_id);
+        const restore = r.stock_tracked_before && Number(r.stock_before) > 0 ? Number(r.stock_before) : fallbackStock;
+        return { id: w.variation_id, qty: w.available ? restore : 0 };
+      });
+      applied = await setCounts(list, loc, failed);
+
+      // switch tracking back off for items that never tracked stock before we touched them
+      const untrack = ons.filter((w) => applied.includes(w.variation_id) && rows.get(w.variation_id).stock_tracked_before === false).map((w) => w.variation_id);
+      if (untrack.length) await setTracking(untrack, loc, false, new Map());
     }
 
-    await db.from("catalog_items")
-      .update({ available, updated_at: new Date().toISOString() })
-      .eq("item_id", item_id);
-    return json({ ok: true, item_id, available, mode });
+    for (const c of chunks(applied, 200)) {
+      const on = new Set(delta.filter((w) => w.available).map((w) => w.variation_id));
+      const ids_on = c.filter((id) => on.has(id)), ids_off = c.filter((id) => !on.has(id));
+      if (ids_on.length) await db.from("catalog_items").update({ available: true, updated_at: new Date().toISOString() }).in("variation_id", ids_on);
+      if (ids_off.length) await db.from("catalog_items").update({ available: false, updated_at: new Date().toISOString() }).in("variation_id", ids_off);
+    }
+    const fails = [...failed.entries()].map(([id, reason]) => ({ variation_id: id, name: name(id), reason }));
+    return json({ ok: fails.length === 0, applied: applied.length, unchanged: wanted.length - delta.length, failed: fails, mode });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error(e);

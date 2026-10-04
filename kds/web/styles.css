@@ -228,3 +228,50 @@ table.t tr:hover td{background:var(--card2)}
   .lrow{grid-template-columns:1fr}
   .topbar .stat{display:none}
 }
+
+/* ---------- Make line (window) ---------- */
+.board.makeline{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;align-items:start}
+.mgroup{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.mhead{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--card2);border-bottom:1px solid var(--line)}
+.mhead .n{font-size:1.8em;font-weight:900;color:var(--ok);min-width:1.4em;text-align:center}
+.mhead .nm{flex:1;font-weight:800;font-size:1.15em}
+.mrows{display:flex;flex-direction:column;gap:5px;padding:8px}
+.mrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;text-align:left;width:100%;padding:10px 10px;border-radius:10px;background:var(--card2);border:2px solid var(--line);min-height:56px}
+.mrow:hover{filter:brightness(1.1)} .mrow:active{transform:scale(.99)}
+.mrow.online{border-left:7px solid var(--online)}
+.mrow.warn{border-color:var(--warn)} .mrow.late{border-color:var(--late)}
+.mono{font-size:1.5em;font-weight:900;line-height:1;display:flex;flex-direction:column;min-width:3.2em}
+.mono small{font-size:.5em;color:var(--muted);font-weight:700;margin-top:3px}
+.mqty{font-size:1.6em;font-weight:900;min-width:2.2em}
+.mbody{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.mdet{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.mdet .mod{font-size:.95em;padding:3px 9px}
+.mords{display:flex;flex-wrap:wrap;gap:4px;width:100%}
+.lastflag{font-size:.82em}
+.mcoming{grid-column:1/-1;padding:6px 4px;font-weight:600}
+.pboard.three{grid-template-columns:1fr 1fr 1fr}
+.pboard .part h2{color:var(--warn);margin-bottom:.5vh}
+.pboard .part .sub{color:var(--muted);font-size:2.4vh;margin-bottom:2.5vh}
+.pboard .part .num{background:var(--warn-bg);border:3px solid var(--warn);display:flex;flex-direction:column;align-items:center;line-height:1}
+.pboard .num small{font-size:2.6vh;font-weight:700;margin-top:.6vh;color:var(--muted)}
+.pboard.three .num{font-size:7.5vh;min-width:13vh}
+@media (max-width:760px){.board.makeline{grid-template-columns:1fr}.pboard.three{grid-template-columns:1fr}}
+
+/* ---------- Menu & TV screens ---------- */
+.mm-list{display:flex;flex-direction:column;gap:6px}
+.mm-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 12px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+.mm-row.off{border-color:var(--late);background:var(--late-bg)}
+.mm-name{min-width:0;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+.mm-addon{width:100%;color:var(--box);font-size:.85em;font-weight:600}
+.mm-tools{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.tbtn{min-width:40px;height:36px;padding:0 9px;border-radius:8px;background:var(--card2);border:1px solid var(--line);font-weight:800;font-size:.85em;display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+.tbtn.on{color:#111;background:var(--accent);border-color:transparent}
+.tbtn.on.jain{background:var(--ok)} .tbtn.on.new{background:var(--late);color:#fff} .tbtn.auto{color:var(--warn);border-style:dashed}
+.tbtn.ghostbtn{opacity:.5}
+.mm-tools select{height:36px;padding:0 8px;max-width:170px}
+.mm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px}
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.media-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.media-card img,.media-card video{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:var(--bg)}
+@media (max-width:760px){.mm-row{grid-template-columns:auto 1fr}.mm-tools{grid-column:1/-1;justify-content:flex-start}.mm-grid{grid-template-columns:1fr}}
+.pboard.three .num{display:flex;flex-direction:column;align-items:center;line-height:1}

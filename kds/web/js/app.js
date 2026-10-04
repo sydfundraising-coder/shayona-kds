@@ -1,7 +1,14 @@
 /* Core: state, helpers, router, home + login */
 (function () {
   const K = window.KDS;
-  const api = (K.api = K.createAPI());
+  let api;
+  try { api = K.api = K.createAPI(); }
+  catch (e) {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('app').innerHTML = `<div class="page"><h2>Can't connect to the live system</h2><p>${String(e.message).replace(/</g, '&lt;')}</p><button class="btn" onclick="location.reload()">Retry</button></div>`;
+    });
+    throw e;
+  }
   const st = (K.state = { cfg: null, orders: [], items: [], itemsByOrder: new Map(), connected: true, loaded: false });
 
   // ------------------------------------------------------------------ helpers
@@ -144,7 +151,7 @@
         const cls = t - since >= late ? 'late' : t - since >= warn ? 'warn' : '';
         if (el.dataset.cls !== cls) {
           el.dataset.cls = cls; el.classList.remove('warn', 'late'); if (cls) el.classList.add(cls);
-          const card = el.closest('.ticket,.lrow,.chip'); if (card) { card.classList.remove('st-warn', 'st-late', 'warn', 'late'); if (cls) card.classList.add(card.classList.contains('chip') ? cls : 'st-' + cls); }
+          const card = el.closest('.ticket,.lrow,.chip,.mrow'); if (card) { card.classList.remove('st-warn', 'st-late', 'warn', 'late'); if (cls) card.classList.add(card.matches('.chip,.mrow') ? cls : 'st-' + cls); }
         }
       }
     });
@@ -163,7 +170,7 @@
       <div class="page">
         <div class="row" style="justify-content:space-between;flex-wrap:wrap">
           <div><h1>Shayona Cafe · Kitchen Display</h1>
-          <div class="muted">${api.mode === 'demo' ? 'Demo mode — sample orders using your real menu. Nothing is sent to Square.' : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
+          <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
           <div class="row">${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
         ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They will show on the Window screen marked "No station". <a href="#/admin?tab=routing">Fix routing →</a></div>` : ''}
@@ -177,9 +184,15 @@
           <a class="tile" style="--c:var(--info)" href="#/front"><b>Front counter</b><span>All orders · call numbers · mark collected</span></a>
           <a class="tile" style="--c:var(--online)" href="#/board"><b>Customer pickup board</b><span>TV screen: Preparing / Ready numbers</span></a>
         </div>
+        <h2>Menu &amp; TV screens</h2>
+        <div class="tiles">
+          <a class="tile" style="--c:var(--accent)" href="#/menu"><b>Menu control</b><span>Availability, NEW, Jain, wait times, presets, notices, photos</span></a>
+          <a class="tile" href="menu-board.html" target="_blank" rel="noopener"><b>TV menu board ↗</b><span>Live menu for the café TV</span></a>
+          <a class="tile" href="menu-slideshow.html" target="_blank" rel="noopener"><b>Photo slideshow ↗</b><span>Dish photos, videos &amp; promos</span></a>
+        </div>
         <h2>Manage</h2>
         <div class="tiles">
-          <a class="tile" href="#/availability"><b>Item availability</b><span>Switch items on/off (updates Square)</span></a>
+          <a class="tile" href="#/availability"><b>Item availability</b><span>Quick on/off by station (updates Square)</span></a>
           ${isAdmin ? `<a class="tile" href="#/reports"><b>Reports</b><span>Prep times by order, item &amp; station</span></a>
           <a class="tile" href="#/admin"><b>Admin</b><span>Stations, routing, settings, Square sync</span></a>` : ''}
         </div>

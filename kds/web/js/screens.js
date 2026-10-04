@@ -4,7 +4,7 @@
 
   const LAYOUTS = {
     station: [['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List'], ['summary', 'Item summary']],
-    window: [['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
+    window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
   const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true };
@@ -13,6 +13,31 @@
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem('kds.dismissed') || '[]')); } catch (_) { return new Set(); } };
   const dismiss = (id) => { const s = dismissed(); s.add(id); try { localStorage.setItem('kds.dismissed', JSON.stringify([...s].slice(-300))); } catch (_) {} };
   const showCancelled = (o) => o.status === 'cancelled' && !dismissed().has(o.id) && Date.now() - new Date(o.cancelled_at || o.updated_at) < 30 * 60e3;
+
+  // ------------------------------------------------------------------ hold-until-complete + part pickup
+  let catMapFor = null, catMap = new Map();
+  function catRow(it) {
+    if (catMapFor !== st.cfg) { catMap = new Map(st.cfg.catalog.map((c) => [c.variation_id, c])); catMapFor = st.cfg; }
+    return catMap.get(it.variation_id);
+  }
+  // items marked "hold" are not handed out until everything else in the order is ready
+  K.isHeld = function (it) {
+    const c = catRow(it);
+    if (c && c.hold != null) return !!c.hold;
+    const cat = st.cfg.categories.find((k) => (c && k.square_id === c.category_id) || k.name === it.category_name);
+    return !!cat?.hold;
+  };
+  const liveItems = (o) => (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed);
+  const allWindowDone = (o) => liveItems(o).every((i) => i.qty_window >= i.qty);
+  K.pickup = function (o) {
+    const items = liveItems(o), allReady = items.length > 0 && items.every((i) => i.qty_window >= i.qty);
+    let total = 0, readyOrDone = 0, collectable = 0;
+    items.forEach((it) => {
+      const held = !allReady && K.isHeld(it), waiting = it.qty_window - it.qty_front;
+      total += it.qty; collectable += held ? 0 : waiting; readyOrDone += it.qty_front + (held ? 0 : waiting);
+    });
+    return { allReady, total, readyOrDone, collectable, items };
+  };
 
   // ------------------------------------------------------------------ small renderers
   const ono = (o) => { const n = String(o.order_no ?? o.kds_seq ?? ''); return /^\d+$/.test(n) ? '#' + n : n; };
@@ -42,7 +67,7 @@
   }
 
   // per-screen item model
-  function itemModel(it, kind) {
+  function itemModel(it, kind, held) {
     const st0 = K.stationById(it.station_id);
     const unrouted = !it.station_id && !it.no_prep;
     if (kind === 'station') {
@@ -62,13 +87,14 @@
     const col = it.qty_window - it.qty_front, rem = it.qty - it.qty_front;
     let cls, status, tap = null;
     if (rem <= 0) { cls = 'done'; status = 'Collected'; }
+    else if (col > 0 && held) { cls = 'waiting'; status = `${col} ready · held until the whole order is ready`; }
     else if (col > 0) { cls = 'tap ready'; tap = { stage: 'front' }; status = `${col} ready to hand over`; }
     else if (it.qty_prep > it.qty_window) { cls = 'waiting'; status = 'At window'; }
     else { cls = 'waiting'; status = unrouted ? 'No station set' : `At ${esc(st0?.name || 'kitchen')} (${it.qty_prep}/${it.qty})`; }
     return { rem, total: it.qty, doneCount: it.qty_front, cls, tap, status };
   }
   function itemRow(o, it, kind, cancelled) {
-    const m = itemModel(it, kind);
+    const m = itemModel(it, kind, kind === 'front' && K.isHeld(it) && !allWindowDone(o));
     const tap = !cancelled && m.tap;
     const name = `${esc(it.item_name)}${it.variation_name ? ` <span class="ivar">· ${esc(it.variation_name)}</span>` : ''}`;
     return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')}" ${tap ? `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="1" ${m.tap.force ? 'data-force="1"' : ''}` : ''}>
@@ -140,9 +166,11 @@
           : `<button class="btn" disabled>Waiting on kitchen</button>`;
       foot += `<button class="btn menu-btn" data-act="force" data-order="${o.id}" data-stage="window" title="More">⋮</button>`;
     } else {
+      const pk = K.pickup(o);
       foot = o.status === 'ready'
         ? `<button class="btn ok" data-act="order" data-order="${o.id}" data-stage="front">COLLECTED ✓</button>`
-        : `<button class="btn" disabled>${o.status === 'at_window' ? 'At window' : 'In kitchen'}</button>`;
+        : pk.collectable ? `<button class="btn ok" data-act="handover" data-order="${o.id}">Hand over ready (${pk.collectable})</button>`
+          : `<button class="btn" disabled>${o.status === 'at_window' ? 'At window' : 'In kitchen'}</button>`;
       foot += `<button class="btn menu-btn" data-act="force" data-order="${o.id}" data-stage="front" title="More">⋮</button>`;
     }
     const items = (kind === 'station' && ctx.p.hideDone ? m.pending : m.items);
@@ -150,7 +178,14 @@
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
       <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
+      ${kind === 'front' && !cancelled ? frontExtra(o) : ''}
       <div class="t-foot">${foot}</div></div>`;
+  }
+  function frontExtra(o) {
+    const pk = K.pickup(o);
+    if (pk.allReady || !pk.readyOrDone) return '';
+    const todo = pk.items.filter((i) => i.qty_window < i.qty).map((i) => `${esc(i.item_name)} ×${i.qty - i.qty_window}`);
+    return `<div class="t-other"><b style="color:var(--ok)">${pk.readyOrDone} of ${pk.total} ready/collected</b>${todo.length ? ` · Still to come: ${todo.join(', ')}` : ''}</div>`;
   }
   function listRow(m, kind, ctx) {
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
@@ -180,6 +215,63 @@
             <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + (r.it.pack === 'BOX' ? 'BOX' : 'PLATE') : ''}</span>
             ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</button>`;
         }).join('')}</div></div>`).join('');
+  }
+  // ---- Make line (window): one row per unit ready to dress, grouped by item, oldest order first
+  function makeLineView(model, ctx) {
+    const groups = new Map(), coming = new Map();
+    const remainingOf = (o) => liveItems(o).reduce((a, i) => a + Math.max(0, i.qty - i.qty_window), 0);
+    model.forEach((m) => {
+      if (m.o.status === 'cancelled') return;
+      m.items.forEach((it) => {
+        const key = it.item_name + '|' + (it.variation_name || '');
+        const unrouted = !it.station_id && !it.no_prep;
+        const ready = unrouted ? it.qty - it.qty_window : it.qty_prep - it.qty_window;
+        const later = unrouted ? 0 : it.qty - it.qty_prep;
+        if (later > 0) coming.set(key, (coming.get(key) || 0) + later);
+        if (ready <= 0) return;
+        if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, rows: [], ready: 0 });
+        const g = groups.get(key); g.ready += ready;
+        g.rows.push({ o: m.o, it, n: ready, force: unrouted, last: remainingOf(m.o) <= ready });
+      });
+    });
+    if (!groups.size) {
+      const nxt = [...coming.entries()].map(([k, n]) => `${esc(k.split('|')[0])} ×${n}`).join(' · ');
+      return empty(nxt ? `Nothing to dress yet<br><small class="muted">Coming next: ${nxt}</small>` : 'All caught up');
+    }
+    const sorted = [...groups.entries()].sort((a, b) => new Date(a[1].rows[0].o.received_at) - new Date(b[1].rows[0].o.received_at));
+    const html = sorted.map(([key, g]) => {
+      let rows;
+      const modsOf = (it) => (it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
+      const detail = (it) => {
+        const mods = modsOf(it);
+        return `${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${it.pack === 'BOX' ? 'BOX' : 'PLATE'}</span>` : ''}
+          <span class="mdet">${mods.map((x) => `<span class="mod ${modClass(x)}">${esc(x)}</span>`).join('')}${it.note ? `<span class="inote">“${esc(it.note)}”</span>` : ''}${!mods.length && !it.note ? '<span class="faint">no changes</span>' : ''}</span>`;
+      };
+      if (ctx.p.batch) {
+        const sig = new Map();
+        g.rows.forEach((r) => {
+          const k = [r.it.pack, ...modsOf(r.it).sort(), r.it.note || ''].join('|');
+          if (!sig.has(k)) sig.set(k, { it: r.it, parts: [], n: 0, force: false });
+          const x = sig.get(k); x.parts.push(r); x.n += r.n; x.force = x.force || r.force;
+        });
+        rows = [...sig.values()].map((x) => `<button class="mrow ${x.parts.some((r) => r.o.is_online) ? 'online' : ''}" data-act="batch" data-items="${x.parts.map((r) => r.it.id + ':' + r.n).join('|')}" ${x.force ? 'data-force="1"' : ''}>
+            <span class="mqty">${x.n}×</span><span class="mbody">${detail(x.it)}
+            <span class="mords">${x.parts.map((r) => `<span class="pill ${r.last ? 'badge-online' : 'badge-walkin'}">${esc(ono(r.o))}${r.n > 1 ? ' ×' + r.n : ''}${r.last ? ' · LAST' : ''}</span>`).join(' ')}</span></span>
+            ${timerHtml(x.parts[0].o.received_at, ctx.th)}</button>`).join('');
+      } else {
+        rows = g.rows.flatMap((r) => Array.from({ length: r.n }, (_, k) => `<button class="mrow ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" ${r.force ? 'data-force="1"' : ''}>
+            <span class="mono">${esc(ono(r.o))}${r.o.customer_name ? `<small>${esc(r.o.customer_name)}</small>` : ''}</span>
+            <span class="mbody">${detail(r.it)}${r.last && k === r.n - 1 ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}${r.force ? '<span class="pill badge-cancel">No station set</span>' : ''}</span>
+            ${timerHtml(r.o.received_at, ctx.th)}</button>`)).join('');
+      }
+      const c = coming.get(key);
+      return `<div class="mgroup"><div class="mhead"><span class="n">${g.ready}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
+        ${c ? `<span class="pill badge-walkin">${c} coming</span>` : ''}
+        <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="window" data-n="1" ${g.rows[0].force ? 'data-force="1"' : ''}>Finish oldest</button></div>
+        <div class="mrows">${rows}</div></div>`;
+    }).join('');
+    const nxt = [...coming.entries()].filter(([k]) => !groups.has(k)).map(([k, n]) => `${esc(k.split('|')[0])} ×${n}`);
+    return html + (nxt.length ? `<div class="mcoming muted">Coming next: ${nxt.join(' · ')}</div>` : '');
   }
   const empty = (txt = 'All caught up') => `<div class="empty"><div class="big">✓</div>${txt}</div>`;
 
@@ -275,9 +367,11 @@
     else if (kind === 'front' && p.layout === 'columns') {
       const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
       html = `<div class="cols" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
-        ${col('In kitchen', '', model.filter((m) => ['new', 'preparing', 'cancelled'].includes(m.o.status)))}
-        ${col('At window', '', model.filter((m) => m.o.status === 'at_window'))}
-        ${col('Ready to collect', 'ready', model.filter((m) => m.o.status === 'ready'))}</div>`;
+        ${col('In kitchen', '', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
+        ${col('Collect now (part ready)', 'ready', model.filter((m) => m.o.status !== 'ready' && m.o.status !== 'cancelled' && K.pickup(m.o).collectable))}
+        ${col('All ready', 'ready', model.filter((m) => m.o.status === 'ready'))}</div>`;
+    } else if (p.layout === 'makeline' && kind === 'window') {
+      html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
     } else if (p.layout === 'summary' && kind === 'station') {
       html = `<div class="board tickets size-${p.size === 's' ? 'm' : 'l'}">${summaryView(model, ctx)}</div>`;
     } else if (p.layout === 'list') {
@@ -328,6 +422,21 @@
         const n = await api.bump(el.dataset.item, el.dataset.stage, el.dataset.n === 'all' ? null : +el.dataset.n, ctx.key, force);
         if (n) K.toast(`${n} × ${it?.item_name || 'item'} — ${ono(o || {})}`, { undo: () => undoItem(ctx, el.dataset.item, el.dataset.stage) });
         else K.toast('Nothing left to bump on that item');
+      } else if (act === 'batch') {
+        const parts = el.dataset.items.split('|').map((x) => x.split(':'));
+        if (el.dataset.force === '1' && !(await K.confirm('Finish without a station?', 'Some of these have no station set, so nobody bumped them in the kitchen. Finish them anyway?', 'Finish'))) return;
+        let n = 0;
+        for (const [id, q] of parts) n += await api.bump(id, 'window', +q, ctx.key, el.dataset.force === '1');
+        const it = findItem(parts[0][0]);
+        K.toast(`${n} × ${it?.item_name || 'item'} finished`, { undo: async () => { for (const [id] of parts) await undoItem(ctx, id, 'window'); } });
+      } else if (act === 'handover') {
+        const o = findOrder(el.dataset.order);
+        const allReady = allWindowDone(o); let n = 0;
+        for (const it of liveItems(o)) {
+          const q = it.qty_window - it.qty_front;
+          if (q > 0 && (allReady || !K.isHeld(it))) n += await api.bump(it.id, 'front', q, ctx.key, false);
+        }
+        K.toast(`${ono(o)}: ${n} item${n === 1 ? '' : 's'} handed over`, { undo: () => undoOrder(ctx, o.id, 'front') });
       } else if (act === 'order') {
         const o = findOrder(el.dataset.order);
         const n = await api.bumpOrder(el.dataset.order, el.dataset.stage, stationFilter(ctx), ctx.key, false);
@@ -361,6 +470,7 @@
       <div class="field"><label>Theme</label>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
       <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
+      ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
@@ -418,8 +528,9 @@
   // customer-facing pickup board (no buttons)
   K.routes.board = function () {
     K.applyTheme(K.prefs('board', { theme: 'dark' }));
-    document.getElementById('app').innerHTML = `<div class="pboard"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
-      <section class="ready"><h2>Ready for pickup</h2><div class="nums" id="pb-ready"></div></section></div>
+    document.getElementById('app').innerHTML = `<div class="pboard three"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
+      <section class="part"><h2>Collect now</h2><div class="sub">Part of your order is ready</div><div class="nums" id="pb-part"></div></section>
+      <section class="ready"><h2>All ready</h2><div class="nums" id="pb-ready"></div></section></div>
       <a href="#/" class="iconbtn" style="position:fixed;left:8px;bottom:8px;opacity:.25">←</a>`;
     K.$('.pboard').onclick = () => { K.unlockAudio(); K.keepAwake(); document.documentElement.requestFullscreen?.().catch(() => {}); };
     K.routes.board.onData();
@@ -429,9 +540,12 @@
     const prep = K.$('#pb-prep'), ready = K.$('#pb-ready'); if (!prep) return;
     const live = st.orders.filter((o) => ['new', 'preparing', 'at_window', 'ready'].includes(o.status)).sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
     const r = live.filter((o) => o.status === 'ready');
-    prep.innerHTML = live.filter((o) => o.status !== 'ready').map((o) => `<div class="num">${esc(String(o.order_no ?? o.kds_seq))}</div>`).join('');
+    const pk = new Map(live.map((o) => [o.id, K.pickup(o)]));
+    const part = live.filter((o) => o.status !== 'ready' && pk.get(o.id).collectable);
+    prep.innerHTML = live.filter((o) => o.status !== 'ready' && !pk.get(o.id).collectable).map((o) => `<div class="num">${esc(String(o.order_no ?? o.kds_seq))}${pk.get(o.id).readyOrDone ? `<small>${pk.get(o.id).readyOrDone} of ${pk.get(o.id).total} collected</small>` : ''}</div>`).join('');
+    K.$('#pb-part').innerHTML = part.map((o) => `<div class="num">${esc(String(o.order_no ?? o.kds_seq))}<small>${pk.get(o.id).readyOrDone} of ${pk.get(o.id).total}</small></div>`).join('');
     ready.innerHTML = r.map((o) => `<div class="num ${Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${esc(String(o.order_no ?? o.kds_seq))}</div>`).join('');
-    const ids = new Set(r.map((o) => o.id));
+    const ids = new Set([...r, ...part].map((o) => o.id + ':' + pk.get(o.id).readyOrDone));
     if (boardSeen && [...ids].some((id) => !boardSeen.has(id))) K.beep('new');
     boardSeen = ids;
   };

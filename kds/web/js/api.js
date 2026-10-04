@@ -64,7 +64,12 @@
         this.sb.from('categories').select('*').order('name').then((r) => this._chk(r)),
         this._all(() => this.sb.from('catalog_items').select('*').eq('is_deleted', false).order('item_name')),
       ]);
-      return { settings: Object.fromEntries(settings.map((r) => [r.key, r.value])), stations, categories, catalog };
+      const opt = async (q) => { try { return this._chk(await q); } catch (_) { return []; } }; // tables from 003 may not exist yet
+      const [presets, media] = await Promise.all([
+        opt(this.sb.from('menu_presets').select('*').order('name')),
+        opt(this.sb.from('menu_media').select('*').order('sort')),
+      ]);
+      return { settings: Object.fromEntries(settings.map((r) => [r.key, r.value])), stations, categories, catalog, presets, media };
     }
     async _all(q) { // paginate past the 1000-row API limit
       const out = []; let from = 0;
@@ -122,6 +127,32 @@
       return data;
     }
     setAvailability(itemId, available) { return this._fn('square-availability', { item_id: itemId, available }); }
+    setAvailabilityVariations(ids, available) { return this._fn('square-availability', { variation_ids: ids, available }); }
+    setAvailabilityMany(changes) { return this._fn('square-availability', { changes }); }
+    async setMenuFlags(variationIds, patch) { return this._chk(await this.sb.rpc('kds_set_menu_flags', { p_variation_ids: variationIds, p_patch: patch })); }
+    async clearWaits() { return this._chk(await this.sb.rpc('kds_clear_waits')); }
+    async setMenuSetting(key, value) { return this._chk(await this.sb.rpc('kds_set_menu_setting', { p_key: key, p_value: value })); }
+    async savePreset(name, ids) { return this._chk(await this.sb.from('menu_presets').upsert({ name, variation_ids: ids, updated_at: iso(now()) })); }
+    async deletePreset(name) { return this._chk(await this.sb.from('menu_presets').delete().eq('name', name)); }
+    async liveWaits() { try { return this._chk(await this.sb.rpc('kds_menu_feed'))?.autoWaits || {}; } catch (_) { return {}; } }
+    async uploadMedia(file, kind, itemName) {
+      const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+      const base = (kind === 'item' ? itemName : file.name.replace(/\.[^.]+$/, '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const path = `${kind}s/${base}-${Date.now()}.${ext}`;
+      const up = await this.sb.storage.from('menu-media').upload(path, file, { contentType: file.type || undefined, upsert: false });
+      if (up.error) throw new Error(up.error.message);
+      const url = this.sb.storage.from('menu-media').getPublicUrl(path).data.publicUrl;
+      const isVideo = /^video\//.test(file.type) || /\.(mp4|webm|m4v)$/i.test(file.name);
+      if (kind === 'item') { // one photo/video per item: replace the old one
+        const old = this._chk(await this.sb.from('menu_media').select('id,path').eq('kind', 'item').ilike('item_name', itemName));
+        for (const o of old) await this.deleteMedia(o.id, o.path);
+      }
+      this._chk(await this.sb.from('menu_media').insert({ kind, item_name: kind === 'item' ? itemName : null, path, url, is_video: isVideo, sort: kind === 'promo' ? file.name.toLowerCase() : null }));
+    }
+    async deleteMedia(id, path) {
+      await this.sb.storage.from('menu-media').remove([path]);
+      this._chk(await this.sb.from('menu_media').delete().eq('id', id));
+    }
     syncCatalog() { return this._fn('square-sync', { action: 'catalog' }); }
     syncOrders(minutes = 60) { return this._fn('square-sync', { action: 'orders', minutes }); }
     testSquare() { return this._fn('square-sync', { action: 'test' }); }
@@ -138,6 +169,8 @@
     async setItemRoute(itemId, stationId, noPrep) { // null/null = follow category
       return this._chk(await this.sb.from('catalog_items').update({ station_id: stationId || null, no_prep: noPrep }).eq('item_id', itemId));
     }
+    async setCategoryHold(catId, hold) { return this._chk(await this.sb.from('categories').update({ hold: !!hold }).eq('square_id', catId)); }
+    async setItemHold(itemId, hold) { return this._chk(await this.sb.from('catalog_items').update({ hold }).eq('item_id', itemId)); }
     async saveSetting(key, value) {
       return this._chk(await this.sb.from('kds_settings').upsert({ key, value, updated_at: iso(now()) }));
     }
@@ -173,16 +206,22 @@
       const catNames = [...new Set(window.KDS_DEMO_MENU.map((m) => m[1]))];
       this.categories = catNames.map((n) => ({
         square_id: 'cat-' + n.replace(/\W+/g, '-').toLowerCase(), name: n,
-        station_id: route[n] || null, no_prep: n === 'BAKERY' || n === 'SWEETS & PACKAGED',
+        station_id: route[n] || null, no_prep: n === 'BAKERY' || n === 'SWEETS & PACKAGED', hold: n === 'DESSERT',
       })).sort((a, b) => a.name.localeCompare(b.name));
       const catByName = Object.fromEntries(this.categories.map((c) => [c.name, c]));
-      this.catalog = window.KDS_DEMO_MENU.map(([name, cat, ta, jain, coffee, itemId, varId]) => ({
+      this.catalog = window.KDS_DEMO_MENU.map(([name, cat, ta, jain, coffee, itemId, varId, price]) => ({
         variation_id: varId, item_id: itemId, item_name: name, variation_name: null,
         category_id: catByName[cat].square_id, category_name: cat,
         station_id: null,
         no_prep: /\d+\s?ML\b/i.test(name) && !/LASSI|SHAKE/i.test(name) ? true : null, // bottled drinks
         available: true, _ta: ta, _jain: jain, _coffee: coffee,
+        price_cents: price || null, description: null, category_ids: [catByName[cat].square_id], online_visible: true,
+        board_category: null, jain: !!jain, is_new: false, wait_min: null, addon: null, hold: null,
       }));
+      this.catalog.find((c) => c.item_name === 'MARGHERITA PIZZA').is_new = true;
+      this.catalog.find((c) => c.item_name === 'PAV BHAJI').wait_min = 15;
+      this.presets = [{ name: 'Weekend Menu', variation_ids: this.catalog.filter((c) => !/SWEETS/.test(c.category_name)).map((c) => c.variation_id) }];
+      this.media = [];
       this.catalog.find((c) => c.item_name === 'MASALA PUFF').available = false;
       this.settings = {
         square_location_id: 'LTK7KJ67PRKJW', timezone: 'Australia/Sydney',
@@ -193,12 +232,24 @@
         timer_warn_minutes: 5, timer_late_minutes: 10, front_clear_minutes: 10,
         availability_mode: 'inventory', available_stock: 999,
         pack_hidden_categories: ['HOT BEVERAGES', 'BEVERAGES'],
+        menu_banner: '', menu_notice: { active: false, title: '', message: '', hours: false },
+        auto_wait: { enabled: true, min_minutes: 10, lookback_minutes: 30 },
       };
       this.orders = []; this.items = []; this.events = []; this.evSeq = 1;
       this._history();
       // live orders at various ages
       const ages = [14, 11, 9, 7.5, 6, 4, 3, 2, 1.2, 0.5];
       ages.forEach((a, i) => this._newOrder(new Date(Date.now() - a * 60e3), { advance: a, i }));
+      // one order that is part-ready, to show "Collect now"
+      const pick = (n) => this.catalog.find((c) => c.item_name === n);
+      const po = this._newOrder(new Date(Date.now() - 8 * 60e3), { lines: [
+        { it: pick('PAV BHAJI'), qty: 2, mods: ['Take Away'], note: null },
+        { it: pick('MANGO LASSI'), qty: 1, mods: [], note: null },
+        { it: pick('MARGHERITA PIZZA'), qty: 1, mods: ['Extra Spicy'], note: null }] });
+      this.items.filter((i) => i.order_id === po.id && i.item_name !== 'MARGHERITA PIZZA').forEach((i) => {
+        this._bump(i.id, 'prep', null, 'seed', false, new Date(Date.now() - 4 * 60e3));
+        if (i.item_name === 'PAV BHAJI') this._bump(i.id, 'window', null, 'seed', false, new Date(Date.now() - 3 * 60e3));
+      });
     }
     _route(cat) {
       const c = this.categories.find((x) => x.square_id === cat.category_id);
@@ -240,7 +291,7 @@
         completed_at: null, cancelled_at: null, forced: false, updated_at: iso(at),
       };
       this.orders.push(o);
-      this._pickLines(rand).forEach((l, idx) => {
+      (opts.lines || this._pickLines(rand)).forEach((l, idx) => {
         const r = this._route(l.it);
         const pack = l.mods.some((m) => /take ?away/i.test(m)) ? 'BOX' : online ? 'BOX' : 'PLATE';
         this.items.push({
@@ -256,7 +307,7 @@
         const a = opts.advance;
         its.forEach((it, k) => {
           if (a > 8 || (a > 5 && k === 0)) this._bump(it.id, 'prep', a > 6 ? null : 1, 'seed', false, new Date(at.getTime() + 4 * 60e3));
-          if (a > 10) this._bump(it.id, 'window', null, 'seed', false, new Date(at.getTime() + 7 * 60e3));
+          if (a > 10 || (a > 8.5 && k === 0)) this._bump(it.id, 'window', null, 'seed', false, new Date(at.getTime() + 7 * 60e3));
         });
       }
       this._refresh(o.id);
@@ -346,7 +397,8 @@
     // ---- interface ----
     async loadConfig() {
       return { settings: { ...this.settings }, stations: this.stations.map((s) => ({ ...s })),
-        categories: this.categories.map((c) => ({ ...c })), catalog: this.catalog.map((c) => ({ ...c })) };
+        categories: this.categories.map((c) => ({ ...c })), catalog: this.catalog.map((c) => ({ ...c })),
+        presets: this.presets.map((p) => ({ ...p })), media: this.media.map((m) => ({ ...m })) };
     }
     async loadActive(recentMinutes = 30) {
       const recent = Date.now() - recentMinutes * 60e3;
@@ -391,6 +443,30 @@
       this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.available = available));
       this._emit('catalog_items'); return { ok: true, demo: true };
     }
+    async setAvailabilityVariations(ids, available) { return this.setAvailabilityMany(ids.map((id) => ({ variation_id: id, available }))); }
+    async setAvailabilityMany(changes) {
+      await new Promise((r) => setTimeout(r, 400)); let n = 0;
+      changes.forEach((c) => { const row = this.catalog.find((x) => x.variation_id === c.variation_id); if (row && row.available !== c.available) { row.available = c.available; n++; } });
+      this._emit('catalog_items'); return { ok: true, applied: n, failed: [], demo: true };
+    }
+    async setMenuFlags(ids, patch) {
+      this.catalog.filter((c) => ids.includes(c.variation_id)).forEach((c) => {
+        if ('jain' in patch) c.jain = !!patch.jain; if ('is_new' in patch) c.is_new = !!patch.is_new;
+        if ('wait_min' in patch) c.wait_min = patch.wait_min || null; if ('addon' in patch) c.addon = (patch.addon || '').trim() || null;
+        if ('board_category' in patch) c.board_category = patch.board_category || null;
+      }); return ids.length;
+    }
+    async clearWaits() { this.catalog.forEach((c) => (c.wait_min = null)); }
+    async setMenuSetting(key, value) { this.settings[key] = value; }
+    async savePreset(name, ids) { this.presets = this.presets.filter((p) => p.name !== name).concat([{ name, variation_ids: ids }]); }
+    async deletePreset(name) { this.presets = this.presets.filter((p) => p.name !== name); }
+    async liveWaits() { return {}; }
+    async uploadMedia(file, kind, itemName) {
+      const url = URL.createObjectURL(file);
+      if (kind === 'item') this.media = this.media.filter((m) => !(m.kind === 'item' && m.item_name.toLowerCase() === itemName.toLowerCase()));
+      this.media.push({ id: uuid(), kind, item_name: kind === 'item' ? itemName : null, path: file.name, url, is_video: /^video\//.test(file.type), sort: file.name.toLowerCase() });
+    }
+    async deleteMedia(id) { this.media = this.media.filter((m) => m.id !== id); }
     async syncCatalog() { await new Promise((r) => setTimeout(r, 600)); return { ok: true, categories: this.categories.length, variations: this.catalog.length, demo: true }; }
     async syncOrders() { return { ok: true, ingested: 0, demo: true }; }
     async testSquare() { return { ok: true, location: 'Shayona Cafe (demo)', business: 'BAPS Shayona Cafe', timezone: 'Australia/Sydney' }; }
@@ -416,6 +492,8 @@
     async setCategoryRoute(catId, stationId, noPrep) { Object.assign(this.categories.find((c) => c.square_id === catId), { station_id: stationId || null, no_prep: !!noPrep }); }
     async setItemRoute(itemId, stationId, noPrep) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => Object.assign(c, { station_id: stationId || null, no_prep: noPrep })); }
     async saveSetting(key, value) { this.settings[key] = value; }
+    async setCategoryHold(catId, hold) { this.categories.find((c) => c.square_id === catId).hold = !!hold; }
+    async setItemHold(itemId, hold) { this.catalog.filter((c) => c.item_id === itemId).forEach((c) => (c.hold = hold)); }
     async reportRows(fromIso, toIso) {
       const f = new Date(fromIso), t = new Date(toIso);
       const sName = Object.fromEntries(this.stations.map((s) => [s.id, s.name]));
@@ -432,7 +510,15 @@
   K.createAPI = function () {
     const cfg = window.KDS_CONFIG || {};
     const forceDemo = /[?&]demo=1/.test(location.search) || cfg.demo === true;
-    if (!forceDemo && cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase) return new LiveAPI(cfg);
+    const hasCfg = !!(String(cfg.supabaseUrl || '').trim() && String(cfg.supabaseAnonKey || '').trim());
+    if (!forceDemo && hasCfg) {
+      // never fall back to demo silently once the site is configured
+      if (!window.supabase) throw new Error('The Supabase library (js/vendor/supabase.js) did not load. Check that the file was uploaded to GitHub, then refresh.');
+      return new LiveAPI(cfg);
+    }
+    K.demoReason = forceDemo ? 'Demo was requested in the address (?demo=1).'
+      : !window.KDS_CONFIG ? 'config.js was not found on the website.'
+      : 'config.js on the website has no Supabase URL / key.';
     return new DemoAPI();
   };
 })();

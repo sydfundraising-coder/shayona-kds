@@ -171,6 +171,10 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
       for (const v of d.variations ?? []) {
         const vd = v.item_variation_data ?? {};
         const ov = (vd.location_overrides ?? []).find((o: any) => o.location_id === loc) ?? {};
+        const price = ov.price_money?.amount ?? vd.price_money?.amount ?? null;
+        const desc = d.description_plaintext ||
+          (d.description_html ? String(d.description_html).replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim() : "") ||
+          d.description || null;
         rows.push({
           variation_id: v.id,
           item_id: it.id,
@@ -178,6 +182,10 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
           variation_name: vd.name && vd.name !== "Regular" ? vd.name : null,
           category_id: catId,
           category_name: catId ? catName.get(catId) ?? null : null,
+          category_ids: [...new Set([catId, ...(d.categories ?? []).map((c: any) => c.id)].filter(Boolean))],
+          price_cents: price == null ? null : Number(price),
+          description: desc,
+          online_visible: d.ecom_visibility ? d.ecom_visibility === "VISIBLE" : null,
           available: !ov.sold_out,
           is_deleted: false,
           updated_at: new Date().toISOString(),
