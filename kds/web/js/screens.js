@@ -47,6 +47,9 @@
     const mods = (it.modifiers || []).filter((m) => !PACK_WORDS.test(String(m).trim()));
     return mods.length ? `<div class="mods">${mods.map((m) => `<span class="mod ${modClass(m)}">${esc(m)}</span>`).join('')}</div>` : '';
   }
+  const PACK_LABEL = { BOX: 'TAKE AWAY', PLATE: 'DINE-IN' };
+  const packLabel = (p) => PACK_LABEL[p === 'BOX' ? 'BOX' : 'PLATE'];
+  K.packLabel = packLabel;
   // Box/Plate badge — hidden for categories where it doesn't matter (e.g. drinks), unless it's an explicit BOX
   const showPack = (it) => it.pack === 'BOX' || !(K.setting('pack_hidden_categories', []) || []).some((c) => String(c).toLowerCase() === String(it.category_name || '').toLowerCase());
   K.showPack = showPack;
@@ -100,7 +103,7 @@
     return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')}" ${tap ? `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="1" ${m.tap.force ? 'data-force="1"' : ''}` : ''}>
       <div class="qty">${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</div>
       <div><div class="iname">${name}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}${m.status ? `<div class="istatus">${m.status}</div>` : ''}</div>
-      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${it.pack === 'BOX' ? 'BOX' : 'PLATE'}</span>` : ''}${dots(m.doneCount, m.total)}
+      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}${dots(m.doneCount, m.total)}
         ${tap && m.rem > 1 && (kind !== 'window' || it.qty_prep - it.qty_window > 1) && (kind !== 'front' || it.qty_window - it.qty_front > 1) ? `<button class="allbtn" data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="all">ALL</button>` : ''}</div>
     </li>`;
   }
@@ -213,66 +216,66 @@
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
           return `<button class="chip ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1">
             <span class="c1">${esc(ono(r.o))} × ${r.rem}</span>
-            <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + (r.it.pack === 'BOX' ? 'BOX' : 'PLATE') : ''}</span>
+            <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + packLabel(r.it.pack) : ''}</span>
             ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</button>`;
         }).join('')}</div></div>`).join('');
   }
-  // ---- Make line (window): one row per unit ready to dress, grouped by item, oldest order first
+  // ---- Make line (window): one row per unit, grouped by item, oldest order first.
+  // Units the station has finished are bright and come first ("ready to dress");
+  // units still cooking are shown faded underneath so the window sees what's coming.
   function makeLineView(model, ctx) {
-    const groups = new Map(), coming = new Map();
+    const groups = new Map();
     const remainingOf = (o) => liveItems(o).reduce((a, i) => a + Math.max(0, i.qty - i.qty_window), 0);
     model.forEach((m) => {
       if (m.o.status === 'cancelled') return;
       m.items.forEach((it) => {
-        const key = it.item_name + '|' + (it.variation_name || '');
-        const unrouted = false;
         const ready = it.qty_prep - it.qty_window;
-        const later = it.qty - it.qty_prep;
-        if (later > 0) coming.set(key, (coming.get(key) || 0) + later);
-        if (ready <= 0) return;
-        if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, rows: [], ready: 0 });
-        const g = groups.get(key); g.ready += ready;
-        g.rows.push({ o: m.o, it, n: ready, force: unrouted, last: remainingOf(m.o) <= ready });
+        const cooking = it.qty - it.qty_prep;
+        if (ready <= 0 && cooking <= 0) return;
+        const key = it.item_name + '|' + (it.variation_name || '');
+        if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, ready: [], cooking: [], nReady: 0, nCooking: 0, oldest: m.o.received_at });
+        const g = groups.get(key);
+        if (ready > 0) { g.ready.push({ o: m.o, it, n: ready, last: remainingOf(m.o) <= ready }); g.nReady += ready; }
+        if (cooking > 0) { g.cooking.push({ o: m.o, it, n: cooking, waiting: true }); g.nCooking += cooking; }
       });
     });
-    if (!groups.size) {
-      const nxt = [...coming.entries()].map(([k, n]) => `${esc(k.split('|')[0])} ×${n}`).join(' · ');
-      return empty(nxt ? `Nothing to dress yet<br><small class="muted">Coming next: ${nxt}</small>` : 'All caught up');
-    }
-    const sorted = [...groups.entries()].sort((a, b) => new Date(a[1].rows[0].o.received_at) - new Date(b[1].rows[0].o.received_at));
-    const html = sorted.map(([key, g]) => {
+    if (!groups.size) return empty('All caught up');
+    const byAge = (x, y) => new Date(x.o.received_at) - new Date(y.o.received_at);
+    const sorted = [...groups.values()].sort((a, b) => ((b.nReady > 0) - (a.nReady > 0)) || (new Date(a.oldest) - new Date(b.oldest)));
+    const modsOf = (it) => (it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
+    const detail = (it) => {
+      const mods = modsOf(it);
+      return `${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}
+        <span class="mdet">${mods.map((x) => `<span class="mod ${modClass(x)}">${esc(x)}</span>`).join('')}${it.note ? `<span class="inote">“${esc(it.note)}”</span>` : ''}${!mods.length && !it.note ? '<span class="faint">no changes</span>' : ''}</span>`;
+    };
+    const stName = (it) => esc(K.stationById(it.station_id)?.name || 'kitchen');
+    return sorted.map((g) => {
+      g.ready.sort(byAge); g.cooking.sort(byAge);
       let rows;
-      const modsOf = (it) => (it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
-      const detail = (it) => {
-        const mods = modsOf(it);
-        return `${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${it.pack === 'BOX' ? 'BOX' : 'PLATE'}</span>` : ''}
-          <span class="mdet">${mods.map((x) => `<span class="mod ${modClass(x)}">${esc(x)}</span>`).join('')}${it.note ? `<span class="inote">“${esc(it.note)}”</span>` : ''}${!mods.length && !it.note ? '<span class="faint">no changes</span>' : ''}</span>`;
-      };
       if (ctx.p.batch) {
         const sig = new Map();
-        g.rows.forEach((r) => {
-          const k = [r.it.pack, ...modsOf(r.it).sort(), r.it.note || ''].join('|');
-          if (!sig.has(k)) sig.set(k, { it: r.it, parts: [], n: 0, force: false });
-          const x = sig.get(k); x.parts.push(r); x.n += r.n; x.force = x.force || r.force;
+        [...g.ready, ...g.cooking].forEach((r) => {
+          const k = [r.waiting ? 'w' : 'r', r.it.pack, ...modsOf(r.it).sort(), r.it.note || ''].join('|');
+          if (!sig.has(k)) sig.set(k, { it: r.it, parts: [], n: 0, waiting: !!r.waiting });
+          const x = sig.get(k); x.parts.push(r); x.n += r.n;
         });
-        rows = [...sig.values()].map((x) => `<button class="mrow ${x.parts.some((r) => r.o.is_online) ? 'online' : ''}" data-act="batch" data-items="${x.parts.map((r) => r.it.id + ':' + r.n).join('|')}" ${x.force ? 'data-force="1"' : ''}>
-            <span class="mqty">${x.n}×</span><span class="mbody">${detail(x.it)}
+        rows = [...sig.values()].map((x) => `<button class="mrow ${x.waiting ? 'waiting' : ''} ${x.parts.some((r) => r.o.is_online) ? 'online' : ''}" data-act="batch" data-items="${x.parts.map((r) => r.it.id + ':' + r.n).join('|')}" ${x.waiting ? 'data-force="1"' : ''}>
+            <span class="mqty">${x.n}×</span><span class="mbody">${detail(x.it)}${x.waiting ? `<span class="pill badge-walkin">cooking · ${stName(x.it)}</span>` : ''}
             <span class="mords">${x.parts.map((r) => `<span class="pill ${r.last ? 'badge-online' : 'badge-walkin'}">${esc(ono(r.o))}${r.n > 1 ? ' ×' + r.n : ''}${r.last ? ' · LAST' : ''}</span>`).join(' ')}</span></span>
             ${timerHtml(x.parts[0].o.received_at, ctx.th)}</button>`).join('');
       } else {
-        rows = g.rows.flatMap((r) => Array.from({ length: r.n }, (_, k) => `<button class="mrow ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" ${r.force ? 'data-force="1"' : ''}>
+        const one = (r, k) => `<button class="mrow ${r.waiting ? 'waiting' : ''} ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" ${r.waiting ? 'data-force="1"' : ''}>
             <span class="mono">${esc(ono(r.o))}${r.o.customer_name ? `<small>${esc(r.o.customer_name)}</small>` : ''}</span>
-            <span class="mbody">${detail(r.it)}${r.last && k === r.n - 1 ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}${r.force ? '<span class="pill badge-cancel">No station set</span>' : ''}</span>
-            ${timerHtml(r.o.received_at, ctx.th)}</button>`)).join('');
+            <span class="mbody">${detail(r.it)}${r.waiting ? `<span class="pill badge-walkin">cooking · ${stName(r.it)}</span>` : ''}${!r.waiting && r.last && k === r.n - 1 ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}</span>
+            ${timerHtml(r.o.received_at, ctx.th)}</button>`;
+        rows = [...g.ready, ...g.cooking].flatMap((r) => Array.from({ length: r.n }, (_, k) => one(r, k))).join('');
       }
-      const c = coming.get(key);
-      return `<div class="mgroup"><div class="mhead"><span class="n">${g.ready}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
-        ${c ? `<span class="pill badge-walkin">${c} coming</span>` : ''}
-        <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="window" data-n="1" ${g.rows[0].force ? 'data-force="1"' : ''}>Finish oldest</button></div>
+      const first = g.ready[0] || g.cooking[0];
+      return `<div class="mgroup"><div class="mhead"><span class="n">${g.nReady}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}
+          <small class="muted" style="display:block;font-weight:600">${g.nReady} ready${g.nCooking ? ` · ${g.nCooking} cooking` : ''}</small></span>
+        ${g.nReady ? `<button class="btn sm ok" data-act="bump" data-item="${first.it.id}" data-stage="window" data-n="1">Finish oldest</button>` : ''}</div>
         <div class="mrows">${rows}</div></div>`;
     }).join('');
-    const nxt = [...coming.entries()].filter(([k]) => !groups.has(k)).map(([k, n]) => `${esc(k.split('|')[0])} ×${n}`);
-    return html + (nxt.length ? `<div class="mcoming muted">Coming next: ${nxt.join(' · ')}</div>` : '');
   }
   const empty = (txt = 'All caught up') => `<div class="empty"><div class="big">✓</div>${txt}</div>`;
 

@@ -183,12 +183,12 @@
     const list = (k) => esc((s[k] || []).join(', '));
     K.$('#tab').innerHTML = `<div class="card" style="max-width:720px">
       <div class="field"><label>Square location ID (Shayona Cafe)</label><input data-k="square_location_id" data-type="str" value="${esc(s.square_location_id || '')}"></div>
-      <h2>Box or plate</h2>
-      <div class="field"><label>Modifier/note words that mean TAKEAWAY BOX (comma separated)</label><input data-k="takeaway_keywords" data-type="list" value="${list('takeaway_keywords')}"></div>
-      <div class="field"><label>Words that mean PLATE / eat in</label><input data-k="plate_keywords" data-type="list" value="${list('plate_keywords')}"></div>
-      <div class="row"><div class="field grow"><label>Walk-in item with no modifier</label><select data-k="default_pack" data-type="str"><option ${s.default_pack === 'PLATE' ? 'selected' : ''}>PLATE</option><option ${s.default_pack === 'BOX' ? 'selected' : ''}>BOX</option></select></div>
-      <div class="field grow"><label>Online order item with no modifier</label><select data-k="online_pack" data-type="str"><option ${s.online_pack === 'BOX' ? 'selected' : ''}>BOX</option><option ${s.online_pack === 'PLATE' ? 'selected' : ''}>PLATE</option></select></div></div>
-      <div class="field"><label>Don't show the PLATE badge for these categories (e.g. drinks) — BOX still shows</label><input data-k="pack_hidden_categories" data-type="list" value="${list('pack_hidden_categories')}"></div>
+      <h2>Take away or dine-in</h2>
+      <div class="field"><label>Modifier/note words that mean TAKE AWAY (comma separated)</label><input data-k="takeaway_keywords" data-type="list" value="${list('takeaway_keywords')}"></div>
+      <div class="field"><label>Words that mean DINE-IN</label><input data-k="plate_keywords" data-type="list" value="${list('plate_keywords')}"></div>
+      <div class="row"><div class="field grow"><label>Walk-in item with no modifier</label><select data-k="default_pack" data-type="str"><option value="PLATE" ${s.default_pack === 'PLATE' ? 'selected' : ''}>DINE-IN</option><option value="BOX" ${s.default_pack === 'BOX' ? 'selected' : ''}>TAKE AWAY</option></select></div>
+      <div class="field grow"><label>Online order item with no modifier</label><select data-k="online_pack" data-type="str"><option value="BOX" ${s.online_pack === 'BOX' ? 'selected' : ''}>TAKE AWAY</option><option value="PLATE" ${s.online_pack === 'PLATE' ? 'selected' : ''}>DINE-IN</option></select></div></div>
+      <div class="field"><label>Don't show the DINE-IN badge for these categories (e.g. drinks) — TAKE AWAY still shows</label><input data-k="pack_hidden_categories" data-type="list" value="${list('pack_hidden_categories')}"></div>
       <h2>Online orders</h2>
       <div class="field"><label>Order sources treated as ONLINE (comma separated, matched in the Square source name)</label><input data-k="online_sources" data-type="list" value="${list('online_sources')}"></div>
       <h2>Timers</h2>
@@ -339,7 +339,7 @@
           ['Avg wait for collection', K.dur(mean(clean.map((o) => secs(o.order_ready_at, o.order_completed_at))))],
           ['Avg total (order → collected)', K.dur(mean(clean.map((o) => secs(o.received_at, o.order_completed_at))))],
           [`Late orders (ready > ${lateMin} min)`, clean.filter((o) => secs(o.received_at, o.order_ready_at) > lateMin * 60).length],
-          ['Box / Plate units', `${stRows.filter((r) => r.pack === 'BOX').reduce((a, r) => a + r.qty, 0)} / ${stRows.filter((r) => r.pack !== 'BOX').reduce((a, r) => a + r.qty, 0)}`],
+          ['Take away / Dine-in units', `${stRows.filter((r) => r.pack === 'BOX').reduce((a, r) => a + r.qty, 0)} / ${stRows.filter((r) => r.pack !== 'BOX').reduce((a, r) => a + r.qty, 0)}`],
           ['Forced / closed orders', orders.length - clean.length],
         ];
         out.innerHTML = `<div class="kpis">${kp.map(([l, v]) => `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div></div>`).join('')}</div>`;
@@ -368,7 +368,7 @@
           if (!g.has(k)) g.set(k, { name: r.item_name + (r.variation_name ? ' · ' + r.variation_name : ''), station: r.no_prep ? 'No prep' : r.station_name || '—', units: 0, orders: new Set(), prep: [], win: [], box: 0 });
           const x = g.get(k); x.units += r.qty; x.orders.add(r.order_id); x.prep.push([r.avg_prep_sec, (r.prep_units || 0) - (r.forced_units || 0)]); x.win.push([r.avg_window_sec, r.window_units]); if (r.pack === 'BOX') x.box += r.qty;
         });
-        table = { head: ['Item', 'Station', 'Units', 'Orders', 'Avg order → made', 'Avg order → finished', 'Box %'],
+        table = { head: ['Item', 'Station', 'Units', 'Orders', 'Avg order → made', 'Avg order → finished', 'Take away %'],
           rows: [...g.values()].sort((a, b) => b.units - a.units).map((x) => [x.name, x.station, x.units, x.orders.size, K.dur(avgW(x.prep)), K.dur(avgW(x.win)), Math.round(x.box / x.units * 100) + '%']) };
         out.innerHTML = tableHtml(table); R.table = table; return;
       }

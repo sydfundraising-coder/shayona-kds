@@ -308,3 +308,6 @@ table.t tr:hover td{background:var(--card2)}
 :root[data-theme="warm"] .card{box-shadow:var(--shadow)}
 :root[data-theme="warm"] .mm-addon{color:#C25E0C}
 :root[data-theme="warm"] #mlist h2 .btn{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);font-weight:600}
+.mrow.waiting{opacity:.55;border-style:dashed;background:transparent}
+.mrow.waiting:hover{opacity:.8}
+.pack{white-space:nowrap}
