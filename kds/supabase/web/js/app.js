@@ -114,7 +114,7 @@
   };
   let wakeLock = null;
   K.keepAwake = async () => { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) {} };
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { if (wakeLock) K.keepAwake(); K.reload(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { if (wakeLock) K.keepAwake(); K.reload(); if (st.cfg) K.configChanged(); } });
 
   // ------------------------------------------------------------------ data loading
   function index() {
@@ -171,11 +171,81 @@
       else { const stn = K.stationByShort(r.name); if (stn) r = { ...r, name: 'station', arg: stn.id }; }
     }
     const fn = K.routes[r.name] || K.routes.home;
+    if (!dataOnly) { K.pageRefresh = null; hideBanner(); }
     if (dataOnly && fn.onData) return fn.onData(r);
     if (dataOnly && fn.static) return;
     fn(r);
   };
-  window.addEventListener('hashchange', () => { if (!st.cfg) return; K.$$('.toast').forEach((t) => t.remove()); K.$$('.scrim,.modal-wrap').forEach((t) => t.remove()); K.render(); });
+  window.addEventListener('hashchange', () => { if (!st.cfg) return; K.$$('.toast').forEach((t) => t.remove()); K.$$('.scrim,.modal-wrap,.start').forEach((t) => t.remove()); K.render(); });
+
+
+  // ------------------------------------------------------------------ live changes, no refresh needed
+  // Config (stations, routing, settings, menu, presets, photos) changed on another screen or by Square:
+  // kitchen screens redraw, list pages redraw keeping search/filter, other pages redraw unless someone
+  // is in the middle of typing — then a small banner offers to refresh.
+  let lastTouch = Date.now();
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { lastTouch = Date.now(); }, true));
+  const modalOpen = () => !!K.$('.modal-wrap,.scrim');
+  const typing = () => { const a = document.activeElement; return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#app')); };
+  const dirtyFields = () => K.$$('#app input, #app textarea, #app select').some((el) => {
+    if (el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked;
+    if (el.tagName === 'SELECT') { const o = [...el.options]; return o.some((x) => x.defaultSelected) ? o.some((x) => x.selected !== x.defaultSelected) : el.selectedIndex > 0; }
+    if (el.type === 'file') return !!el.value;
+    return el.value !== el.defaultValue;
+  });
+  function resolved() {
+    let r = K.route();
+    if (!K.routes[r.name] && r.name) {
+      const short = SHORT[slug(r.name)];
+      if (short && K.routes[short]) r = { ...r, name: short };
+      else { const stn = K.stationByShort(r.name); if (stn) r = { ...r, name: 'station', arg: stn.id }; }
+    }
+    return { r, fn: K.routes[r.name] || K.routes.home };
+  }
+  function showBanner(text, btn, onClick) {
+    let b = K.$('#livebar');
+    if (!b) { b = document.createElement('div'); b.id = 'livebar'; b.className = 'livebar'; document.body.appendChild(b); }
+    b.innerHTML = `<span>${text}</span><button class="btn sm primary">${btn}</button>`;
+    b.querySelector('button').onclick = () => { hideBanner(); onClick(); };
+  }
+  function hideBanner() { const b = K.$('#livebar'); if (b) b.remove(); }
+  K.hideLiveBanner = hideBanner;
+  let softWaiting = false;
+  K.softRender = function () {
+    const { r, fn } = resolved();
+    if (fn.live && fn.onData) return fn.onData(r);
+    if (K.pageRefresh) { try { K.pageRefresh(); } catch (e) { console.error(e); } return; }
+    if (fn.noLive) return;
+    if (modalOpen() || typing()) {                        // wait until they finish, then try again
+      if (!softWaiting) { softWaiting = true; const t = setInterval(() => { if (!modalOpen() && !typing()) { clearInterval(t); softWaiting = false; K.softRender(); } }, 2000); }
+      return;
+    }
+    if (dirtyFields()) return showBanner('Changes were made on another screen.', 'Refresh', () => K.render());
+    const y = window.scrollY; fn(r); window.scrollTo(0, y);
+  };
+  let cfgTimer = null, cfgFirst = 0;
+  K.configChanged = function () {                         // debounced: a Square sync can send hundreds of changes
+    const now = Date.now(); if (!cfgTimer) cfgFirst = now;
+    clearTimeout(cfgTimer);
+    cfgTimer = setTimeout(async () => {
+      cfgTimer = null;
+      try { await K.loadConfig(); K.softRender(); } catch (e) { console.error(e); }
+    }, now - cfgFirst > 3000 ? 0 : 700);
+  };
+
+  // A new version was uploaded: reload by itself at a safe moment (kitchen screens wait for a
+  // 20-second pause in tapping; other pages wait until nobody is typing).
+  window.KDS_ON_UPDATE = function () {
+    const tryNow = () => {
+      const { fn } = resolved();
+      if (modalOpen() || typing()) return false;
+      if (fn.live && Date.now() - lastTouch < 20000) return false;
+      if (!fn.live && dirtyFields()) { showBanner('A new version of the KDS is ready.', 'Update now', () => location.reload()); return true; }
+      try { sessionStorage.setItem('kds-autoreload', '1'); } catch (_) {}
+      location.reload(); return true;
+    };
+    if (!tryNow()) { const t = setInterval(() => { if (tryNow()) clearInterval(t); }, 5000); }
+  };
 
   // per-second ticker for timers and clock
   setInterval(() => {
@@ -261,20 +331,19 @@
       const ok = await api.init();
       if (!ok) return loginScreen();
       await K.loadConfig();
-      api.subscribe((table) => {
-        if (table === 'stations' || table === 'catalog_items') K.loadConfig().then(() => K.render(true));
-        else K.reload();
-      }, setConn);
+      const CFG = ['stations', 'catalog_items', 'categories', 'kds_settings', 'menu_presets', 'menu_media'];
+      api.subscribe((table) => { if (CFG.includes(table)) K.configChanged(); else K.reload(); },
+        (ok) => { const was = st.connected; setConn(ok); if (ok && was === false) { K.reload(0); K.configChanged(); } });
       K.render();
       K.reload(0);
       setInterval(() => K.reload(0), 20000);            // safety net if live updates drop
-      setInterval(() => K.loadConfig().catch(() => {}), 5 * 60e3);
+      setInterval(() => K.configChanged(), 3 * 60e3);   // safety net for settings/menu
     } catch (e) {
       console.error(e);
       app.innerHTML = `<div class="page"><h2>Could not start</h2><p class="muted">${K.esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button></div>`;
     }
   }
   K.boot = boot;
-  window.addEventListener('online', () => K.reload(0));
+  window.addEventListener('online', () => { K.reload(0); K.configChanged(); });
   document.addEventListener('DOMContentLoaded', boot);
 })();

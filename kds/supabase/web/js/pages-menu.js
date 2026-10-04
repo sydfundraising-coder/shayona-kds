@@ -90,6 +90,7 @@
     }
     const patchLocal = (ids, patch) => st.cfg.catalog.filter((c) => ids.includes(c.variation_id)).forEach((c) => Object.assign(c, patch));
     K.$('#mq').oninput = draw; K.$('#mf').onchange = draw;
+    K.pageRefresh = draw;                          // live: redraw when anything changes on another screen or in Square
     K.$('#msync').onclick = async (e) => {
       e.target.disabled = true;
       try { const r = await api.syncCatalog(); await reloadCfg(); K.toast(`Menu refreshed from Square — ${r.variations} items` + (r.available != null ? `, ${r.available} available, ${r.sold_out} sold out` : '')); draw(); }

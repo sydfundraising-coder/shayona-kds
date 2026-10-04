@@ -38,6 +38,7 @@
         <button class="switch ${c.available ? 'on' : ''}" data-item="${esc(c.item_id)}" data-on="${c.available ? 1 : 0}" aria-label="Toggle availability"></button></div>`).join('')}</div>`).join('') || '<div class="empty">No items match</div>';
     };
     ['q', 'stf', 'vf'].forEach((id) => K.$('#' + id).addEventListener('input', draw));
+    K.pageRefresh = draw;                          // live: redraw when availability changes anywhere
     K.$('#alist').onclick = async (e) => {
       const b = e.target.closest('.switch'); if (!b || b.classList.contains('busy')) return;
       const turnOn = b.dataset.on !== '1';
@@ -401,4 +402,5 @@
     run();
   };
   K.routes.reports.static = true;
+  K.routes.reports.noLive = true;     // reports only change when you press Run
 })();

@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Shayona Cafe KDS</title>
+<script>
+  // Short addresses like /pizza or /window: open the KDS on that screen.
+  var p = location.pathname.replace(/^\/+|\/+$/g, '');
+  if (p && !/\./.test(p)) location.replace('/#/' + p); else location.replace('/');
+</script></head>
+<body style="font-family:system-ui;background:#0f1115;color:#f2f4f8;padding:40px">Opening Shayona Cafe KDS… <a href="/" style="color:#f59e0b">Go to home</a></body></html>

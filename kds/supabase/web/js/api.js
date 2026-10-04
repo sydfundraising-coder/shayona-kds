@@ -92,11 +92,23 @@
       return { orders, items };
     }
     subscribe(onChange, onStatus) {
-      if (this.channel) this.sb.removeChannel(this.channel);
-      const ch = this.sb.channel('kds-live');
-      ['orders', 'order_items', 'catalog_items', 'stations'].forEach((t) =>
+      this._sub = [onChange, onStatus];
+      const old = this.channel; this.channel = null;
+      if (old) this.sb.removeChannel(old);
+      clearTimeout(this._retry);
+      const ch = this.sb.channel('kds-live-' + Date.now());
+      ['orders', 'order_items', 'catalog_items', 'stations', 'categories', 'kds_settings', 'menu_presets', 'menu_media'].forEach((t) =>
         ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (p) => onChange(t, p)));
-      ch.subscribe((status) => onStatus && onStatus(status === 'SUBSCRIBED'));
+      ch.subscribe((status) => {
+        if (ch !== this.channel) return;
+        const ok = status === 'SUBSCRIBED';
+        onStatus && onStatus(ok);
+        // connection dropped (wifi blip, laptop asleep, token refresh) → join again by itself
+        if (!ok && ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+          clearTimeout(this._retry);
+          this._retry = setTimeout(() => this.subscribe(...this._sub), 3000);
+        }
+      });
       this.channel = ch;
     }
     async bump(itemId, stage, qty, screen, force = false) {
