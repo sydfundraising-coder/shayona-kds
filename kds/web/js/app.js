@@ -147,14 +147,35 @@
     const parts = path.split('/').filter(Boolean);
     return { name: parts[0] || 'home', arg: parts[1], q: new URLSearchParams(qs || '') };
   };
+  // ---- short addresses: kds.shayona.com.au/pizza, /window, /front, /board, /2 (2nd station) …
+  const slug = (t) => String(t || '').toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const SHORT = { w: 'window', window: 'window', expo: 'window', pass: 'window', f: 'front', front: 'front', counter: 'front',
+    board: 'board', pickup: 'board', tv: 'board', menu: 'menu', avail: 'availability', '86': 'availability', admin: 'admin', reports: 'reports', home: 'home' };
+  K.stationSlug = (s) => slug(s.name).split('-')[0];
+  K.stationByShort = function (key) {
+    const k = slug(key); if (!k || !st.cfg) return null;
+    const list = st.cfg.stations.filter((s) => s.active).sort((a, b) => a.sort - b.sort);
+    if (/^\d+$/.test(k)) return list[+k - 1] || null;
+    return list.find((s) => slug(s.name) === k) || list.find((s) => K.stationSlug(s) === k) || list.find((s) => slug(s.name).startsWith(k)) || null;
+  };
+  (function pathToHash() {
+    const p = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ''));
+    if (p && !/\.html?$/i.test(p) && !location.hash) location.replace('#/' + p);
+  })();
+
   K.render = function (dataOnly = false) {
-    const r = K.route();
+    let r = K.route();
+    if (!K.routes[r.name] && r.name) {
+      const short = SHORT[slug(r.name)];
+      if (short && K.routes[short]) { r = { ...r, name: short }; }
+      else { const stn = K.stationByShort(r.name); if (stn) r = { ...r, name: 'station', arg: stn.id }; }
+    }
     const fn = K.routes[r.name] || K.routes.home;
     if (dataOnly && fn.onData) return fn.onData(r);
     if (dataOnly && fn.static) return;
     fn(r);
   };
-  window.addEventListener('hashchange', () => { K.$$('.toast').forEach((t) => t.remove()); K.$$('.scrim,.modal-wrap').forEach((t) => t.remove()); K.render(); });
+  window.addEventListener('hashchange', () => { if (!st.cfg) return; K.$$('.toast').forEach((t) => t.remove()); K.$$('.scrim,.modal-wrap').forEach((t) => t.remove()); K.render(); });
 
   // per-second ticker for timers and clock
   setInterval(() => {

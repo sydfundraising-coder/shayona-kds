@@ -252,14 +252,15 @@
   function tabLinks() {
     const base = location.href.split('#')[0];
     const links = [
-      ...st.cfg.stations.filter((s) => s.active).map((s) => [s.name + ' station', '#/station/' + s.id]),
-      ['Order handling window', '#/window'], ['Front counter', '#/front'], ['Customer pickup board (TV)', '#/board'],
-      ['Item availability', '#/availability'], ['Menu control', '#/menu'], ['Reports', '#/reports'],
+      ...st.cfg.stations.filter((s) => s.active).sort((a, b) => a.sort - b.sort).map((s) => [s.name + ' station', K.stationSlug(s)]),
+      ['Order handling window', 'window'], ['Front counter', 'front'], ['Customer pickup board (TV)', 'board'],
+      ['Item availability', 'avail'], ['Menu control', 'menu'], ['Reports', 'reports'],
       ['TV menu board (no login)', 'menu-board.html'], ['Photo slideshow (no login)', 'menu-slideshow.html'],
     ];
-    K.$('#tab').innerHTML = `<p class="muted">Open each link on the tablet/TV for that spot and add it to the home screen (or bookmark it). Each screen remembers its own layout.</p>
-      <div class="tablewrap" style="max-height:none"><table class="t"><tbody>${links.map(([n, h]) => { const u = h.startsWith('#') ? base + h : base.replace(/[^/]*$/, '') + h; return `<tr><td><b>${esc(n)}</b></td><td><code style="font-size:.85em;word-break:break-all">${esc(u)}</code></td>
-      <td><button class="btn sm" data-copy="${esc(u)}">Copy</button> <a class="btn sm" href="${h}" ${h.startsWith('#') ? '' : 'target="_blank" rel="noopener"'}>Open</a></td></tr>`; }).join('')}</tbody></table></div>`;
+    K.$('#tab').innerHTML = `<p class="muted">Open each link on the tablet/TV for that spot and add it to the home screen (or bookmark it). Each screen remembers its own layout.
+      Short addresses also work by number: <code>/1</code>, <code>/2</code>… opens station 1, 2… in display order.</p>
+      <div class="tablewrap" style="max-height:none"><table class="t"><tbody>${links.map(([n, h]) => { const u = location.origin + '/' + h; return `<tr><td><b>${esc(n)}</b></td><td><code style="font-size:.85em;word-break:break-all">${esc(u)}</code></td>
+      <td><button class="btn sm" data-copy="${esc(u)}">Copy</button> <a class="btn sm" href="${/\.html$/.test(h) ? h : '#/' + h}" ${/\.html$/.test(h) ? 'target="_blank" rel="noopener"' : ''}>Open</a></td></tr>`; }).join('')}</tbody></table></div>`;
     K.$('#tab').onclick = (e) => { const b = e.target.closest('[data-copy]'); if (b) navigator.clipboard?.writeText(b.dataset.copy).then(() => K.toast('Link copied')); };
   }
 
