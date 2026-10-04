@@ -196,22 +196,23 @@ export async function syncCatalog(db: SupabaseClient, s?: Settings) {
     cursor = r.cursor;
   } while (cursor);
 
-  // Availability comes from Square: for items that track stock at the café, available = stock count > 0
-  // (this is what Square POS / Square Online use for "sold out"); otherwise Square's own sold-out flag.
-  const tracked = rows.filter((r) => r._tracked).map((r) => r.variation_id);
+  // Availability = the café's stock count in Square is above 0 — exactly the rule the old Menu Manager used
+  // (it set 1000 = available, 0 = sold out). Items with no count at the café count as sold out.
+  const allIds = rows.map((r) => r.variation_id);
   const counts = new Map<string, number>();
-  for (let i = 0; i < tracked.length; i += 100) {
+  for (let i = 0; i < allIds.length; i += 100) {
     let c: string | undefined;
     do {
       const r = await square("/inventory/counts/batch-retrieve", {
-        body: { catalog_object_ids: tracked.slice(i, i + 100), location_ids: [loc], states: ["IN_STOCK"], cursor: c },
+        body: { catalog_object_ids: allIds.slice(i, i + 100), location_ids: [loc], states: ["IN_STOCK"], cursor: c },
       });
       for (const x of r.counts ?? []) counts.set(x.catalog_object_id, Number(x.quantity));
       c = r.cursor;
     } while (c);
   }
   for (const r of rows) {
-    if (r._tracked) r.available = (counts.get(r.variation_id) ?? 0) > 0 && r.available;
+    r.stock_qty = counts.has(r.variation_id) ? counts.get(r.variation_id) : null;
+    r.available = (counts.get(r.variation_id) ?? 0) > 0;
     delete r._tracked;
   }
 
@@ -280,7 +281,7 @@ Deno.serve(async (req) => {
       for (const c of counts) {
         if (c.location_id !== settings.square_location_id || c.state !== "IN_STOCK") continue;
         await db.from("catalog_items")
-          .update({ available: Number(c.quantity) > 0, updated_at: new Date().toISOString() })
+          .update({ available: Number(c.quantity) > 0, stock_qty: Number(c.quantity), updated_at: new Date().toISOString() })
           .eq("variation_id", c.catalog_object_id);
       }
     }

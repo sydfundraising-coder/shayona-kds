@@ -15,6 +15,10 @@
   const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const mediaFor = (name) => (st.cfg.media || []).find((m) => m.kind === 'item' && normName(m.item_name) === normName(name));
   const reloadCfg = async () => { await K.loadConfig(); };
+  // Menu control + TV screens only list items with a café stock count of 0 or more in Square
+  // (the items managed on the menu). Before 006 is run there is no stock column, so show everything.
+  const onMenu = (c) => !c.is_deleted && (!('stock_qty' in c) || (c.stock_qty != null && Number(c.stock_qty) >= 0));
+  const menuItems = () => st.cfg.catalog.filter(onMenu);
   let autoWaits = {};
 
   K.routes.menu = function (r) {
@@ -48,7 +52,7 @@
     api.liveWaits().then((w) => { autoWaits = w || {}; draw(); });
     const draw = () => {
       const q = K.$('#mq').value.trim().toLowerCase(), f = K.$('#mf').value;
-      let rows = st.cfg.catalog.filter((c) => !c.is_deleted);
+      let rows = menuItems();
       if (q) rows = rows.filter((c) => c.item_name.toLowerCase().includes(q));
       if (f === 'on') rows = rows.filter((c) => c.available);
       if (f === 'off') rows = rows.filter((c) => !c.available);
@@ -95,7 +99,7 @@
       const bulk = e.target.closest('[data-bulk]');
       if (bulk) {
         const on = bulk.dataset.bulk === '1';
-        const ids = st.cfg.catalog.filter((c) => !c.is_deleted && boardCat(c) === bulk.dataset.cat && c.available !== on).map((c) => c.variation_id);
+        const ids = menuItems().filter((c) => boardCat(c) === bulk.dataset.cat && c.available !== on).map((c) => c.variation_id);
         if (!ids.length) return K.toast('Nothing to change');
         if (!(await K.confirm(`Turn ${on ? 'ON' : 'OFF'} ${ids.length} item(s) in ${esc(bulk.dataset.cat)}?`, 'This updates Square, the kitchen screens and the TV menu.', on ? 'Turn on' : 'Turn off'))) return;
         await runAvailability(ids.map((id) => ({ variation_id: id, available: on })));
@@ -140,7 +144,7 @@
   async function runAvailability(changes) {
     const res = await api.setAvailabilityMany(changes);
     const failedIds = new Set((res.failed || []).map((f) => f.variation_id));
-    changes.forEach((c) => { if (!failedIds.has(c.variation_id)) st.cfg.catalog.filter((x) => x.variation_id === c.variation_id).forEach((x) => (x.available = c.available)); });
+    changes.forEach((c) => { if (!failedIds.has(c.variation_id)) st.cfg.catalog.filter((x) => x.variation_id === c.variation_id).forEach((x) => { x.available = c.available; if ('stock_qty' in x) x.stock_qty = c.available ? Math.max(1, Number(x.stock_qty) || 1000) : 0; }); });
     if (res.failed?.length) {
       K.modal(`${res.failed.length} item(s) couldn't be changed`, `<ul style="padding-left:18px;margin:0">${res.failed.slice(0, 20).map((f) => `<li><b>${esc(f.name)}</b> — ${esc(f.reason)}</li>`).join('')}</ul>
         <div class="actions"><button class="btn primary" data-x>OK</button></div>`, (w, close) => { K.$('[data-x]', w).onclick = close; });
@@ -195,7 +199,7 @@
     K.$('#wclr').onclick = async () => { try { await api.clearWaits(); st.cfg.catalog.forEach((c) => (c.wait_min = null)); K.toast('Wait times cleared'); } catch (err) { K.toast(err.message, { error: true }); } };
     K.$('#psave').onclick = async () => {
       const name = K.$('#pn').value.trim(); if (!name) return K.toast('Type a preset name', { error: true });
-      const ids = st.cfg.catalog.filter((c) => !c.is_deleted && c.available).map((c) => c.variation_id);
+      const ids = menuItems().filter((c) => c.available).map((c) => c.variation_id);
       try { await api.savePreset(name, ids); await reloadCfg(); K.toast(`Preset "${name}" saved (${ids.length} items)`); tabScreens(); } catch (err) { K.toast(err.message, { error: true }); }
     };
     box.onclick = async (e) => {
@@ -226,7 +230,7 @@
           return;
         }
         const on = new Set(p.variation_ids);
-        const changes = st.cfg.catalog.filter((c) => !c.is_deleted).map((c) => ({ variation_id: c.variation_id, available: on.has(c.variation_id) }));
+        const changes = menuItems().map((c) => ({ variation_id: c.variation_id, available: on.has(c.variation_id) }));
         const flips = changes.filter((c) => st.cfg.catalog.find((x) => x.variation_id === c.variation_id).available !== c.available).length;
         if (!(await K.confirm(`Apply "${esc(p.name)}"?`, `${p.variation_ids.length} items on, everything else off. <b>${flips}</b> item(s) will change in Square.`, 'Apply preset'))) return;
         pb.disabled = true; pb.textContent = 'Applying…';
@@ -241,8 +245,8 @@
     const media = st.cfg.media || [];
     const items = media.filter((m) => m.kind === 'item').sort((a, b) => a.item_name.localeCompare(b.item_name));
     const promos = media.filter((m) => m.kind === 'promo').sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
-    const names = [...new Set(st.cfg.catalog.filter((c) => !c.is_deleted).map((c) => c.item_name))].sort();
-    const missing = [...new Set(st.cfg.catalog.filter((c) => !c.is_deleted && c.available && !mediaFor(c.item_name)).map((c) => c.item_name))].sort();
+    const names = [...new Set(menuItems().map((c) => c.item_name))].sort();
+    const missing = [...new Set(menuItems().filter((c) => c.available && !mediaFor(c.item_name)).map((c) => c.item_name))].sort();
     const thumb = (m) => m.is_video ? `<video src="${esc(m.url)}" muted playsinline preload="metadata"></video>` : `<img src="${esc(m.url)}" alt="" loading="lazy">`;
     K.$('#mtab').innerHTML = `
       <div class="card"><h2 style="margin-top:0">Add a dish photo or video</h2>

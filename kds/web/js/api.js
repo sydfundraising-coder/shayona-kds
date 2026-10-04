@@ -217,6 +217,7 @@
         available: true, _ta: ta, _jain: jain, _coffee: coffee,
         price_cents: price || null, description: null, category_ids: [catByName[cat].square_id], online_visible: true,
         board_category: null, jain: !!jain, is_new: false, wait_min: null, addon: null, hold: null,
+        stock_qty: /SWEETS/.test(cat) ? null : 1000,
       }));
       this.catalog.find((c) => c.item_name === 'MARGHERITA PIZZA').is_new = true;
       this.catalog.find((c) => c.item_name === 'PAV BHAJI').wait_min = 15;
@@ -446,7 +447,7 @@
     async setAvailabilityVariations(ids, available) { return this.setAvailabilityMany(ids.map((id) => ({ variation_id: id, available }))); }
     async setAvailabilityMany(changes) {
       await new Promise((r) => setTimeout(r, 400)); let n = 0;
-      changes.forEach((c) => { const row = this.catalog.find((x) => x.variation_id === c.variation_id); if (row && row.available !== c.available) { row.available = c.available; n++; } });
+      changes.forEach((c) => { const row = this.catalog.find((x) => x.variation_id === c.variation_id); if (row && row.available !== c.available) { row.available = c.available; row.stock_qty = c.available ? 1000 : 0; n++; } });
       this._emit('catalog_items'); return { ok: true, applied: n, failed: [], demo: true };
     }
     async setMenuFlags(ids, patch) {

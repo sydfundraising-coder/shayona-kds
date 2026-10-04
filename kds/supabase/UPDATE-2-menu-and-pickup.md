@@ -21,6 +21,8 @@
 ### 1. Supabase: database
 In **SQL Editor**, paste all of **`003_menu_and_pickup.sql`** and click **Run**.
 
+Then run **`006_stock_on_hand.sql`** the same way. It makes Menu control and the TV screens list only items with a café stock count of 0 or more in Square.
+
 ### 2. Supabase: replace the 3 functions
 The new code makes item on/off much faster for presets, and the menu sync now brings in prices and descriptions.
 
