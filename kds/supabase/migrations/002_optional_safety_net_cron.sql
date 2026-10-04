@@ -2,9 +2,12 @@
 -- This is a safety net in case a webhook is ever missed (orders already received are skipped).
 --
 -- Before running:
---   1. Dashboard → Database → Extensions: enable "pg_cron" and "pg_net"
---   2. Replace YOUR-PROJECT-REF and YOUR-CRON-SECRET below
+--   Replace YOUR-PROJECT-REF and YOUR-CRON-SECRET below
 --      (YOUR-CRON-SECRET must match the CRON_SECRET edge-function secret)
+
+-- turn on the two extensions this needs (safe to run more than once)
+create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net  with schema extensions;
 
 select cron.schedule(
   'kds-square-safety-net',
