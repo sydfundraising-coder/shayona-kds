@@ -132,17 +132,23 @@
         <td><label class="row"><input type="checkbox" data-skipw ${c.skip_window ? 'checked' : ''}> Skip window</label></td></tr>`).join('')}
       </tbody></table></div>
       <h2>Item overrides</h2>
-      <div class="row" style="margin-bottom:8px"><input id="iq" placeholder="Search items…" class="grow"><select id="if"><option value="">All items</option><option value="unrouted">Not assigned</option><option value="over">Overridden only</option></select></div>
-      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Goes to</th><th>Override</th><th>Hold until complete</th><th>Order window</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
+      <div class="row" style="margin-bottom:8px"><input id="iq" placeholder="Search items…" class="grow"><select id="if"><option value="">All items</option><option value="unrouted">Not assigned</option><option value="over">Overridden only</option><option value="skipw">Skips window</option><option value="window">Goes to window</option></select></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Route</th><th>Override</th><th>Hold until complete</th><th>Order window</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
     const drawItems = () => {
       const q = K.$('#iq').value.toLowerCase(), f = K.$('#if').value;
       let rows = [...byItem.values()];
       if (q) rows = rows.filter((c) => c.item_name.toLowerCase().includes(q));
       if (f === 'unrouted') rows = rows.filter((c) => !K.routeOf(c) && !isNoPrep(c));
-      if (f === 'over') rows = rows.filter((c) => c.station_id || c.no_prep != null);
+      if (f === 'over') rows = rows.filter((c) => c.station_id || c.no_prep != null || c.skip_window != null || c.hold != null);
+      if (f === 'skipw') rows = rows.filter((c) => K.routeOf(c) && !isNoPrep(c) && (c.skip_window != null ? c.skip_window : catSkip(c)));
+      if (f === 'window') rows = rows.filter((c) => isNoPrep(c) || (K.routeOf(c) && !(c.skip_window != null ? c.skip_window : catSkip(c))));
       K.$('#ibody').innerHTML = rows.map((c) => {
         const r = K.routeOf(c), np = isNoPrep(c);
-        const goes = np ? '<span class="pill badge-walkin">No prep</span>' : r ? `<span class="pill" style="background:${esc(K.stationById(r)?.colour)};color:#fff">${esc(K.stationById(r)?.name)}</span>` : '<span class="pill badge-cancel">Not assigned</span>';
+        const sw = c.skip_window != null ? c.skip_window : catSkip(c);
+        const arrow = '<span class="muted"> → </span>';
+        const goes = np ? `<span class="pill badge-walkin">No prep</span>${arrow}<span class="pill badge-online">Window</span>${arrow}Front`
+          : r ? `<span class="pill" style="background:${esc(K.stationById(r)?.colour)};color:#fff">${esc(K.stationById(r)?.name)}</span>${arrow}${sw ? `<span class="pill badge-cancel" title="${c.skip_window != null ? 'Item setting' : 'Category setting'}">skips window${c.skip_window != null ? '' : ' (category)'}</span>` : '<span class="pill badge-online">Window</span>'}${arrow}Front`
+          : '<span class="pill badge-cancel">Not assigned</span><span class="muted"> → straight to Front</span>';
         const val = c.no_prep === true ? '__noprep' : c.station_id || (c.no_prep === false ? '' : '__follow');
         return `<tr data-item="${esc(c.item_id)}"><td><b>${esc(c.item_name)}</b></td><td class="muted">${esc(c.category_name || '')}</td><td>${goes}</td><td>${stationSelect(val, c.no_prep === true, true)}</td>
           <td><select data-ihold><option value="" ${c.hold == null ? 'selected' : ''}>Same as category</option><option value="1" ${c.hold === true ? 'selected' : ''}>Hold</option><option value="0" ${c.hold === false ? 'selected' : ''}>Don't hold</option></select></td>
@@ -157,6 +163,10 @@
       if (sw) {
         const tr = sw.closest('tr');
         try {
+          if (sw.matches('[data-skipw]') && sw.checked) {
+            const cat = cats.find((k) => k.square_id === tr.dataset.cat), n = items.filter((i) => i.category_id === tr.dataset.cat).length;
+            if (!(await K.confirm(`Skip the window for ALL ${n} items in ${esc(cat.name)}?`, 'Every item in this category will go from the station straight to the front counter. To skip only a few items, leave this off and set "Order window → Skip window" on those items in the list below.', 'Skip window for all'))) { sw.checked = false; return; }
+          }
           if (sw.matches('[data-skipw]')) { await api.setCategorySkipWindow(tr.dataset.cat, sw.checked); cats.find((k) => k.square_id === tr.dataset.cat).skip_window = sw.checked; drawItems(); }
           else { const v = sw.value === '' ? null : sw.value === '1'; await api.setItemSkipWindow(tr.dataset.item, v); st.cfg.catalog.filter((c) => c.item_id === tr.dataset.item).forEach((c) => (c.skip_window = v)); }
           K.toast('Saved — applies to orders on screen now and new orders');
