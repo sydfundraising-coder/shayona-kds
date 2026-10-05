@@ -436,7 +436,7 @@
 
     // banners: unavailable items for this station
     let banner = '';
-    if (kind !== 'front') {
+    if (kind === 'station') {   // 86'd list only on kitchen stations (not the window or front counter)
       const off = st.cfg.catalog.filter((c) => !c.available && !c.is_deleted && (!station || routeOf(c) === station.id));
       if (off.length) banner = `<div class="banner"><span>86'd (unavailable):</span> ${off.slice(0, 12).map((c) => `<span class="pill badge-cancel">${esc(c.item_name)}</span>`).join(' ')}${off.length > 12 ? ` +${off.length - 12} more` : ''}</div>`;
     }
