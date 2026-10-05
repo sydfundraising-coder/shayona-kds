@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · uncollected orders v17';
+  K.VERSION = '5 Oct 2026 · solid sign-in v18';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -402,13 +402,21 @@
   }
   function loginScreen() {
     K.applyTheme({ theme: 'dark' });
+    let why = '';
+    try {
+      const manual = localStorage.getItem('kds.signout') === 'manual';
+      const r = api.lastReason;
+      why = manual ? '' : r === 'badpass' ? 'This screen was signed out because the password for its account was changed. Sign in with the new password.'
+        : r === 'nocreds' || r === 'expired' ? 'This screen was signed out and had no saved sign-in to fall back on. Sign in with “Keep this device signed in” ticked and it won’t ask again.' : '';
+    } catch (_) {}
     document.getElementById('app').innerHTML = `
       <div class="login card"><h2 style="margin-top:0">Shayona Cafe KDS</h2>
         <p class="muted">Sign in with the kitchen or admin account.</p>
+        ${why ? `<div class="banner" style="border-radius:10px;margin-bottom:12px">${K.esc(why)}</div>` : ''}
         <form id="lf"><div class="field"><label>Email</label><input name="e" type="email" autocomplete="username" required></div>
         <div class="field"><label>Password</label><input name="p" type="password" autocomplete="current-password" required></div>
         <label class="row" style="margin:4px 0 14px;align-items:flex-start;gap:8px"><input type="checkbox" name="k" checked style="margin-top:3px">
-          <span>Keep this device signed in<br><span class="muted" style="font-size:.85em">For kitchen screens and the customer display. The screen signs itself back in if the connection drops. (Not kept for admin accounts.)</span></span></label>
+          <span>Keep this device signed in — never ask again<br><span class="muted" style="font-size:.85em">For kitchen screens, the front counter and the customer display. Untick on a personal phone or a shared computer. Tip: use the kitchen account on kitchen screens, not the admin account.</span></span></label>
         <button class="btn primary" style="width:100%">Sign in</button><div id="lerr" class="muted" style="margin-top:10px"></div></form></div>`;
     K.$('#lf').onsubmit = async (e) => {
       e.preventDefault(); const f = e.target;

@@ -28,6 +28,43 @@
     };
   };
 
+  // ---- device sign-in kept in three places, so a browser clearing one of them doesn't sign the screen out
+  const DevStore = {
+    enc(o) { return btoa(unescape(encodeURIComponent(JSON.stringify(o)))); },
+    dec(v) { try { return v ? JSON.parse(decodeURIComponent(escape(atob(v)))) : null; } catch (_) { return null; } },
+    cookie() { const m = document.cookie.match(/(?:^|; )kds_dev=([^;]*)/); return m ? decodeURIComponent(m[1]) : null; },
+    idb(mode, fn) {
+      return new Promise((res) => {
+        try {
+          const rq = indexedDB.open('kds', 1);
+          rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+          rq.onsuccess = () => { try { const tx = rq.result.transaction('kv', mode); const r = fn(tx.objectStore('kv')); tx.oncomplete = () => res(r && r.result); tx.onerror = () => res(null); } catch (_) { res(null); } };
+          rq.onerror = () => res(null);
+        } catch (_) { res(null); }
+      });
+    },
+    set(o) {
+      const v = this.enc(o);
+      try { localStorage.setItem('kds.dev', v); } catch (_) {}
+      try { document.cookie = `kds_dev=${encodeURIComponent(v)}; max-age=${10 * 365 * 86400}; path=/; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (_) {}
+      this.idb('readwrite', (st) => st.put(v, 'dev'));
+      try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (_) {}   // ask the browser not to clear it
+    },
+    getSync() { let v = null; try { v = localStorage.getItem('kds.dev'); } catch (_) {} return this.dec(v || this.cookie()); },
+    async get() {
+      let o = this.getSync();
+      if (!o) { const v = await this.idb('readonly', (st) => st.get('dev')); o = this.dec(v); }
+      if (o) { try { if (!localStorage.getItem('kds.dev')) this.set(o); } catch (_) {} }       // heal the other copies
+      return o;
+    },
+    clear() {
+      try { localStorage.removeItem('kds.dev'); } catch (_) {}
+      try { document.cookie = 'kds_dev=; max-age=0; path=/'; } catch (_) {}
+      this.idb('readwrite', (st) => st.delete('dev'));
+    },
+  };
+  window.KDS_DEVSTORE = DevStore;
+
   // ================================================================== LIVE (Supabase)
   class LiveAPI {
     constructor(cfg) {
@@ -57,7 +94,7 @@
         if (data && data.session) { await this._loadProfile(data.session.user); return 'ok'; }
         if (error && this._isNetErr(error)) netProblem = true;
       } catch (e) { if (this._isNetErr(e)) netProblem = true; }
-      if (this._devCreds()) {
+      if (await DevStore.get()) {
         const r = await this._silentSignIn();
         if (r === 'ok' || r === true) return 'ok';
         if (r === 'offline') return 'offline';
@@ -69,7 +106,9 @@
           if (error && this._isNetErr(error)) return 'offline';
         } catch (e) { if (this._isNetErr(e)) return 'offline'; }
       }
-      return netProblem && (this._hasSaved() || this._devCreds()) ? 'offline' : 'invalid';
+      if (netProblem && (this._hasSaved() || this._devCreds())) return 'offline';
+      if (!this.lastReason) this.lastReason = this._hasSaved() ? 'expired' : 'nocreds';
+      return 'invalid';
     }
     async init() {
       let r = 'invalid';
@@ -110,20 +149,20 @@
       // "Keep this device signed in": kitchen / display devices sign themselves back in if the sign-in
       // is ever lost (wifi drop during a refresh, time limits). Never kept for admin accounts.
       try {
-        if (keep && this.role !== 'admin') localStorage.setItem('kds.dev', btoa(unescape(encodeURIComponent(JSON.stringify({ e: email, p: password })))));
-        else localStorage.removeItem('kds.dev');
+        if (keep) DevStore.set({ e: email, p: password }); else DevStore.clear();
+        localStorage.removeItem('kds.signout');
       } catch (_) {}
     }
-    _devCreds() { try { const v = localStorage.getItem('kds.dev'); return v ? JSON.parse(decodeURIComponent(escape(atob(v)))) : null; } catch (_) { return null; } }
+    _devCreds() { return DevStore.getSync(); }
     async _silentSignIn() {
-      const c = this._devCreds(); if (!c) return 'invalid';
+      const c = await DevStore.get(); if (!c) { this.lastReason = 'nocreds'; return 'invalid'; }
       if (this._silent) return this._silent;
       this._silent = (async () => {
         try {
           const { data, error } = await this.sb.auth.signInWithPassword({ email: c.e, password: c.p });
           if (error) {
             if (this._isNetErr(error)) return 'offline';
-            if (/invalid login|invalid credentials|email not confirmed|banned/i.test(error.message)) { try { localStorage.removeItem('kds.dev'); } catch (_) {} return 'invalid'; }
+            if (/invalid login|invalid credentials|email not confirmed|banned/i.test(error.message)) { DevStore.clear(); this.lastReason = 'badpass'; return 'invalid'; }
             return 'offline';                         // anything else (rate limit, server hiccup): try again later
           }
           await this._loadProfile(data.user); console.info('KDS: signed back in automatically');
@@ -134,7 +173,7 @@
     }
     // called every minute by the app: 'ok' | 'offline' | 'invalid'
     async ensureSession() { return this._restore(); }
-    async signOut() { this._signingOut = true; try { localStorage.removeItem('kds.dev'); } catch (_) {} try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
+    async signOut() { this._signingOut = true; DevStore.clear(); try { localStorage.setItem('kds.signout', 'manual'); } catch (_) {} try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
     _chk({ data, error }) { if (error) throw new Error(error.message); return data; }
 
     async loadConfig() {
