@@ -38,38 +38,70 @@
       });
       this.user = null; this.role = 'staff';
     }
-    async init() {
-      // Restore the saved sign-in. If another tab is refreshing it at that moment, or the network is
-      // slow, wait and try again instead of showing the sign-in page.
-      let session = null;
-      const hasSaved = () => { try { return Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k)); } catch (_) { return false; } };
-      for (let i = 0; i < 6; i++) {
-        try { const { data } = await this.sb.auth.getSession(); session = data.session; } catch (e) { console.warn('getSession', e); }
-        if (session || !hasSaved()) break;
-        try { const { data } = await this.sb.auth.refreshSession(); session = data.session; } catch (_) {}
-        if (session) break;
-        await new Promise((r) => setTimeout(r, 1500));
+    // ---- staying signed in --------------------------------------------------------------
+    // A device that has been signed in never shows the sign-in page because of the internet:
+    // it keeps trying ("offline") until it can confirm the sign-in again. Only a real rejection
+    // (wrong / changed password, revoked sign-in with no saved device sign-in) asks for a sign-in.
+    _hasSaved() { try { return Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k)); } catch (_) { return false; } }
+    _isNetErr(e) {
+      if (!e) return false;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+      const t = `${e.name || ''} ${e.message || ''} ${e.code || ''}`;
+      return e.status === 0 || e.status >= 500 || /fetch|network|timeout|timed out|load failed|offline|AuthRetryableFetchError|ECONN|ENOTFOUND/i.test(t);
+    }
+    // 'ok' = signed in · 'offline' = can't tell right now, keep going · 'invalid' = really signed out
+    async _restore() {
+      let netProblem = false;
+      try {
+        const { data, error } = await this.sb.auth.getSession();
+        if (data && data.session) { await this._loadProfile(data.session.user); return 'ok'; }
+        if (error && this._isNetErr(error)) netProblem = true;
+      } catch (e) { if (this._isNetErr(e)) netProblem = true; }
+      if (this._devCreds()) {
+        const r = await this._silentSignIn();
+        if (r === 'ok' || r === true) return 'ok';
+        if (r === 'offline') return 'offline';
       }
-      if (session) await this._loadProfile(session.user);
-      else if (await this._silentSignIn()) session = true;
-      this.sb.auth.onAuthStateChange((event, s2) => {
-        if (s2) { this._lastSession = s2; return; }
-        if (event === 'SIGNED_OUT' && !this._signingOut && this._lastSession) {
-          // signed out without pressing "Sign out" (e.g. a refresh clash): try once to get the sign-in back
-          const rt = this._lastSession.refresh_token; this._lastSession = null;
-          this.sb.auth.refreshSession({ refresh_token: rt })
-            .then(async ({ data }) => { if (!data.session && !(await this._silentSignIn())) { this.user = null; window.KDS && KDS.boot && KDS.boot(); } })
-            .catch(async () => { if (!(await this._silentSignIn())) this.user = null; });
-          return;
-        }
-        this.user = null;
-      });
-      return !!this.user;
+      if (this._hasSaved()) {
+        try {
+          const { data, error } = await this.sb.auth.refreshSession();
+          if (data && data.session) { await this._loadProfile(data.session.user); return 'ok'; }
+          if (error && this._isNetErr(error)) return 'offline';
+        } catch (e) { if (this._isNetErr(e)) return 'offline'; }
+      }
+      return netProblem && (this._hasSaved() || this._devCreds()) ? 'offline' : 'invalid';
+    }
+    async init() {
+      let r = 'invalid';
+      for (let i = 0; i < 3; i++) {                 // short retries cover a refresh clash with another tab
+        r = await this._restore();
+        if (r === 'ok' || (r === 'invalid' && !this._hasSaved())) break;
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+      if (!this._authHooked) {
+        this._authHooked = true;
+        this.sb.auth.onAuthStateChange((event, s2) => {
+          if (s2) { this._lastSession = s2; return; }
+          if (event === 'SIGNED_OUT' && !this._signingOut) {
+            // signed out without pressing "Sign out": get the sign-in back quietly if we can
+            this._restore().then((res) => { if (res === 'invalid') { this.user = null; window.KDS && KDS.boot && KDS.boot(); } });
+            return;
+          }
+        });
+      }
+      if (r === 'offline') return 'offline';
+      return !!this.user && r === 'ok';
     }
     async _loadProfile(user) {
       this.user = user;
-      const { data } = await this.sb.from('profiles').select('role,display_name').eq('user_id', user.id).maybeSingle();
-      this.role = data?.role || 'staff';
+      try {
+        const { data, error } = await this.sb.from('profiles').select('role,display_name').eq('user_id', user.id).maybeSingle();
+        if (error) throw error;
+        this.role = data?.role || 'staff';
+        try { localStorage.setItem('kds.role', this.role); } catch (_) {}
+      } catch (_) {                                  // offline: use the role we saw last time
+        try { this.role = localStorage.getItem('kds.role') || 'staff'; } catch (__) { this.role = 'staff'; }
+      }
     }
     async signIn(email, password, keep = false) {
       const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
@@ -84,23 +116,24 @@
     }
     _devCreds() { try { const v = localStorage.getItem('kds.dev'); return v ? JSON.parse(decodeURIComponent(escape(atob(v)))) : null; } catch (_) { return null; } }
     async _silentSignIn() {
-      const c = this._devCreds(); if (!c) return false;
+      const c = this._devCreds(); if (!c) return 'invalid';
       if (this._silent) return this._silent;
       this._silent = (async () => {
         try {
           const { data, error } = await this.sb.auth.signInWithPassword({ email: c.e, password: c.p });
-          if (error) { if (/invalid login/i.test(error.message)) { try { localStorage.removeItem('kds.dev'); } catch (_) {} } return false; }
+          if (error) {
+            if (this._isNetErr(error)) return 'offline';
+            if (/invalid login|invalid credentials|email not confirmed|banned/i.test(error.message)) { try { localStorage.removeItem('kds.dev'); } catch (_) {} return 'invalid'; }
+            return 'offline';                         // anything else (rate limit, server hiccup): try again later
+          }
           await this._loadProfile(data.user); console.info('KDS: signed back in automatically');
-          return true;
-        } catch (_) { return false; } finally { setTimeout(() => { this._silent = null; }, 0); }
+          return 'ok';
+        } catch (e) { return this._isNetErr(e) ? 'offline' : 'offline'; } finally { setTimeout(() => { this._silent = null; }, 0); }
       })();
       return this._silent;
     }
-    // called every minute by the app: make sure this screen is still signed in, fix it quietly if not
-    async ensureSession() {
-      try { const { data } = await this.sb.auth.getSession(); if (data.session) return true; } catch (_) {}
-      return this._silentSignIn();
-    }
+    // called every minute by the app: 'ok' | 'offline' | 'invalid'
+    async ensureSession() { return this._restore(); }
     async signOut() { this._signingOut = true; try { localStorage.removeItem('kds.dev'); } catch (_) {} try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
     _chk({ data, error }) { if (error) throw new Error(error.message); return data; }
 

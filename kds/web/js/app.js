@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · new order alert v14';
+  K.VERSION = '5 Oct 2026 · never sign out v15';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -381,6 +381,25 @@
   K.routes.home.static = true;
 
   // ------------------------------------------------------------------ login
+  // signed in before, but the internet is down right now: wait and carry on by itself
+  function reconnectScreen() {
+    K.applyTheme(K.prefs('global', { theme: 'dark' }));
+    document.getElementById('app').innerHTML = `<div class="page lockpage">
+      <div class="big" style="font-size:3em">📶</div><h2 style="margin:0">Reconnecting…</h2>
+      <p class="muted" style="max-width:460px">This screen is still signed in. It's waiting for the internet and will carry on by itself as soon as it's back — no need to sign in again.</p>
+      <div class="muted" id="rc-n" style="font-size:.85em"></div>
+      <button class="btn sm" id="rc-login" style="margin-top:18px">Sign in with a different account</button></div>`;
+    K.$('#rc-login').onclick = () => { clearInterval(t); loginScreen(); };
+    let n = 0;
+    const t = setInterval(async () => {
+      n++; const el = K.$('#rc-n'); if (!el) return clearInterval(t);
+      el.textContent = `Tried ${n} time${n > 1 ? 's' : ''} · trying again every 10 seconds`;
+      const r = await api.ensureSession();
+      if (r === 'ok') { clearInterval(t); boot(); }
+      else if (r === 'invalid') { clearInterval(t); loginScreen(); }
+    }, 10e3);
+    window.addEventListener('online', () => setTimeout(async () => { if (K.$('#rc-n') && (await api.ensureSession()) === 'ok') { clearInterval(t); boot(); } }, 1500), { once: true });
+  }
   function loginScreen() {
     K.applyTheme({ theme: 'dark' });
     document.getElementById('app').innerHTML = `
@@ -404,6 +423,7 @@
     app.innerHTML = '<div class="empty"><div class="big">⏳</div>Loading…</div>';
     try {
       const ok = await api.init();
+      if (ok === 'offline') return reconnectScreen();
       if (!ok) return loginScreen();
       await K.loadConfig();
       const CFG = ['stations', 'catalog_items', 'categories', 'kds_settings', 'menu_presets', 'menu_media'];
@@ -413,11 +433,11 @@
       K.reload(0);
       setInterval(() => K.reload(0), 20000);            // safety net if live updates drop
       setInterval(() => K.configChanged(), 3 * 60e3);   // safety net for settings/menu
-      if (api.mode === 'live') setInterval(async () => {  // stay signed in: fix a lost sign-in quietly
-        if (!navigator.onLine) return;                   // offline: just wait, never show the sign-in page for that
-        const had = !!api.user, ok = await api.ensureSession();
-        if (!ok) boot();                                  // really signed out and can't sign back in → sign-in page
-        else if (!had) { K.reload(0); K.configChanged(); }
+      if (api.mode === 'live' && !K._watch) K._watch = setInterval(async () => {  // stay signed in: fix a lost sign-in quietly
+        const r = await api.ensureSession();
+        if (r === 'invalid') boot();                      // really signed out (e.g. password changed) → sign-in page
+        else if (r === 'offline') setConn(false);         // no internet: keep showing orders, try again next minute
+        else if (!st.connected) { K.reload(0); K.configChanged(); }
       }, 60e3);
     } catch (e) {
       console.error(e);
