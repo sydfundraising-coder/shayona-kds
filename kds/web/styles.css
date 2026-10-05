@@ -447,3 +447,63 @@ table.t tr:hover td{background:var(--card2)}
 .coming .pcard{opacity:.9}
 .coming .pc-n .mods{margin-top:2px}
 .coming .coming-grid{max-height:42vh;overflow:auto}
+
+/* ===================== refined palette (calmer, easier to read) ===================== */
+:root{
+  --bg:#0b0e13; --panel:#121720; --card:#18202b; --card2:#1f2835; --line:#2a3443;
+  --text:#edf1f7; --muted:#9aa6b8; --faint:#6c7789;
+  --accent:#f2a43a; --ok:#3ccf8e; --ok-bg:#0f2a20; --warn:#f2a43a; --warn-bg:#2b2112; --late:#f26b74; --late-bg:#2e171b;
+  --online:#a78bfa; --online-bg:#231d3a; --box:#f59a4a; --plate:#5cc4ef; --info:#6a9cf2;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.25);
+}
+:root[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --card:#ffffff; --card2:#f6f8fb; --line:#dfe4ea;
+  --text:#141a22; --muted:#5e6878; --faint:#8b94a3;
+  --accent:#d9861a; --ok:#15995c; --ok-bg:#e6f6ee; --warn:#c87a12; --warn-bg:#fdf3e2; --late:#d33f4a; --late-bg:#fde9eb;
+  --online:#7c5cdb; --online-bg:#f0ebfd; --box:#e9822e; --plate:#2a9fd6; --info:#3f76d9;
+  --shadow:0 1px 2px rgba(16,24,40,.06), 0 4px 12px rgba(16,24,40,.06);
+}
+.topbar{background:var(--panel);box-shadow:0 1px 0 var(--line)}
+.ticket,.pcard,.vz-card,.kpi{border-width:1px;border-color:var(--line);box-shadow:var(--shadow)}
+.t-head{background:transparent;border-bottom:1px solid var(--line)}
+.t-head .ono,.pc-h .ono{letter-spacing:-.02em}
+.timer{border-radius:999px;padding:3px 10px;font-size:1em}
+/* status borders: clear but not shouting */
+.ticket.st-warn,.pcard.st-warn{border-color:color-mix(in srgb,var(--warn) 70%,transparent)}
+.ticket.st-late,.pcard.st-late{border-color:var(--late)}
+.ticket.all-ready{border-color:var(--ok)}
+.ticket.online,.pcard.online{box-shadow:inset 5px 0 0 var(--online), var(--shadow)}
+.pcard.online{border-left:1px solid var(--line)}
+/* item rows: ready = soft green tint + green edge */
+.item{background:var(--card2);border:1px solid transparent}
+.item.ready{background:color-mix(in srgb,var(--ok) 9%,var(--card));border-color:color-mix(in srgb,var(--ok) 45%,transparent);box-shadow:inset 4px 0 0 var(--ok)}
+.item.waiting{opacity:.6;border:1px dashed var(--line)}
+.qty{background:var(--bg);border:1px solid var(--line)}
+.istatus{color:var(--muted)}
+/* badges: important ones solid (online, take away), the rest tinted */
+.pill{letter-spacing:.03em}
+.badge-online{background:var(--online);color:#fff}
+.badge-walk{background:color-mix(in srgb,#2dd4bf 16%,transparent);color:#5eead4;box-shadow:inset 0 0 0 1px color-mix(in srgb,#2dd4bf 45%,transparent)}
+.badge-di{background:color-mix(in srgb,var(--plate) 14%,transparent);color:var(--plate);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--plate) 45%,transparent)}
+.badge-ta{background:var(--box);color:#1d0d00;box-shadow:none}
+.pack.BOX{background:var(--box);color:#1d0d00;box-shadow:none}
+.pack.PLATE{background:color-mix(in srgb,var(--plate) 14%,transparent);color:var(--plate);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--plate) 45%,transparent)}
+:root[data-theme="light"] .badge-walk{color:#0f766e}
+.badge-walkin{background:var(--card2);color:var(--muted)}
+.mod{background:var(--card2);color:var(--text);border:1px solid var(--line)}
+/* buttons */
+.btn{border-radius:10px;border-color:var(--line);font-weight:700}
+.btn.ok{background:var(--ok);color:#04150d}
+.btn.primary{background:var(--accent);color:#1d1200}
+/* front counter split + window cards */
+.col{background:var(--panel);border-color:var(--line)}
+.col.ready h3{color:var(--ok)} .col.prep h3{color:var(--warn)}
+.ticket.part-ready{border-color:var(--warn);box-shadow:inset 0 0 0 1px var(--warn), var(--shadow)}
+.ticket.part-ready .t-head{background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.col.ready .ticket.all-ready{box-shadow:inset 0 0 0 1px var(--ok), var(--shadow)}
+.col.ready .ticket.all-ready .t-head{background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.pc-it{border-top-color:var(--line)}
+.coming{background:transparent;border-color:var(--line)}
+.banner{background:color-mix(in srgb,var(--late) 10%,var(--panel));border-bottom:1px solid color-mix(in srgb,var(--late) 35%,transparent)}
+.mrow{background:var(--card2);border-width:1px}
+.mrow.online{box-shadow:inset 5px 0 0 var(--online);border-left-width:1px}

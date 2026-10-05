@@ -443,8 +443,18 @@
     }
     if (kind === 'window' && st.loaded) html = comingStrip(ctx, model.length) + html;
     const side = p.sidebar && kind !== 'front';
-    K.$('#wrap').className = side ? 'with-side' : '';
-    K.$('#wrap').innerHTML = html + (side ? `<aside class="sidebar">${allDay(model, kind)}</aside>` : '');
+    // remember where every scrolling area was, so pushing an item never jumps the screen
+    const wrap = K.$('#wrap'), sel = '.col, .pgrid, .coming-grid, .board, .stack, .coming-row';
+    const keep = [...wrap.querySelectorAll(sel)].map((el) => [el.className.split(' ').slice(0, 2).join('.'), el.scrollTop, el.scrollLeft]);
+    const winY = window.scrollY, wrapY = wrap.scrollTop;
+    wrap.className = side ? 'with-side' : '';
+    wrap.innerHTML = html + (side ? `<aside class="sidebar">${allDay(model, kind)}</aside>` : '');
+    const now = [...wrap.querySelectorAll(sel)], used = new Set();
+    keep.forEach(([k, t, l]) => {
+      const el = now.find((x, i) => !used.has(i) && x.className.split(' ').slice(0, 2).join('.') === k && (used.add(i), true));
+      if (el) { el.scrollTop = t; el.scrollLeft = l; }
+    });
+    wrap.scrollTop = wrapY; if (window.scrollY !== winY) window.scrollTo(0, winY);
   }
 
   // Window: orders still being made at the stations. They move up into the main area as soon as a
@@ -507,14 +517,13 @@
         const it = findItem(el.dataset.item); const o = it && findOrder(it.order_id);
         const force = el.dataset.force === '1';
         const n = await api.bump(el.dataset.item, el.dataset.stage, el.dataset.n === 'all' ? null : +el.dataset.n, ctx.key, force);
-        if (n) K.toast(`${n} × ${it?.item_name || 'item'} — ${ono(o || {})}`, { undo: () => undoItem(ctx, el.dataset.item, el.dataset.stage) });
-        else K.toast('Nothing left to bump on that item');
+        if (!n) K.toast('Nothing left to bump on that item');
       } else if (act === 'batch') {
         const parts = el.dataset.items.split('|').map((x) => x.split(':'));
         let n = 0;
         for (const [id, q] of parts) n += await api.bump(id, 'window', +q, ctx.key, el.dataset.force === '1');
         const it = findItem(parts[0][0]);
-        K.toast(`${n} × ${it?.item_name || 'item'} finished`, { undo: async () => { for (const [id] of parts) await undoItem(ctx, id, 'window'); } });
+
       } else if (act === 'handover') {
         const o = findOrder(el.dataset.order);
         const allReady = allWindowDone(o); let n = 0;
@@ -522,12 +531,12 @@
           const q = it.qty_window - it.qty_front;
           if (q > 0 && (allReady || !K.isHeld(it))) n += await api.bump(it.id, 'front', q, ctx.key, false);
         }
-        K.toast(`${ono(o)}: ${n} item${n === 1 ? '' : 's'} handed over`, { undo: () => undoOrder(ctx, o.id, 'front') });
+
       } else if (act === 'order') {
         const o = findOrder(el.dataset.order);
         const n = await api.bumpOrder(el.dataset.order, el.dataset.stage, stationFilter(ctx), ctx.key, false);
         const verb = { prep: 'done', window: 'finished', front: 'collected' }[el.dataset.stage];
-        K.toast(`${ono(o)} ${verb} (${n} item${n === 1 ? '' : 's'})`, { undo: () => undoOrder(ctx, el.dataset.order, el.dataset.stage) });
+
       } else if (act === 'force') {
         const o = findOrder(el.dataset.order);
         const stage = el.dataset.stage;
@@ -536,7 +545,7 @@
             : 'Marks every item as made and finished, even if a station hasn\'t bumped it. Shown as "forced" in reports.', 'Yes, complete');
         if (!ok) return;
         await api.bumpOrder(o.id, stage, null, ctx.key, true);
-        K.toast(`${ono(o)} ${stage === 'front' ? 'completed' : 'finished'}`, { undo: () => undoOrder(ctx, o.id, stage) });
+
       } else if (act === 'dismiss') {
         dismiss(el.dataset.order); drawBoard(ctx); return;
       }

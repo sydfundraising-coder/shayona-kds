@@ -51,12 +51,15 @@
         await new Promise((r) => setTimeout(r, 1500));
       }
       if (session) await this._loadProfile(session.user);
+      else if (await this._silentSignIn()) session = true;
       this.sb.auth.onAuthStateChange((event, s2) => {
         if (s2) { this._lastSession = s2; return; }
         if (event === 'SIGNED_OUT' && !this._signingOut && this._lastSession) {
           // signed out without pressing "Sign out" (e.g. a refresh clash): try once to get the sign-in back
           const rt = this._lastSession.refresh_token; this._lastSession = null;
-          this.sb.auth.refreshSession({ refresh_token: rt }).then(({ data }) => { if (!data.session) { this.user = null; window.KDS && KDS.boot && KDS.boot(); } }).catch(() => { this.user = null; });
+          this.sb.auth.refreshSession({ refresh_token: rt })
+            .then(async ({ data }) => { if (!data.session && !(await this._silentSignIn())) { this.user = null; window.KDS && KDS.boot && KDS.boot(); } })
+            .catch(async () => { if (!(await this._silentSignIn())) this.user = null; });
           return;
         }
         this.user = null;
@@ -68,12 +71,37 @@
       const { data } = await this.sb.from('profiles').select('role,display_name').eq('user_id', user.id).maybeSingle();
       this.role = data?.role || 'staff';
     }
-    async signIn(email, password) {
+    async signIn(email, password, keep = false) {
       const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
       if (error) throw error;
       await this._loadProfile(data.user);
+      // "Keep this device signed in": kitchen / display devices sign themselves back in if the sign-in
+      // is ever lost (wifi drop during a refresh, time limits). Never kept for admin accounts.
+      try {
+        if (keep && this.role !== 'admin') localStorage.setItem('kds.dev', btoa(unescape(encodeURIComponent(JSON.stringify({ e: email, p: password })))));
+        else localStorage.removeItem('kds.dev');
+      } catch (_) {}
     }
-    async signOut() { this._signingOut = true; try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
+    _devCreds() { try { const v = localStorage.getItem('kds.dev'); return v ? JSON.parse(decodeURIComponent(escape(atob(v)))) : null; } catch (_) { return null; } }
+    async _silentSignIn() {
+      const c = this._devCreds(); if (!c) return false;
+      if (this._silent) return this._silent;
+      this._silent = (async () => {
+        try {
+          const { data, error } = await this.sb.auth.signInWithPassword({ email: c.e, password: c.p });
+          if (error) { if (/invalid login/i.test(error.message)) { try { localStorage.removeItem('kds.dev'); } catch (_) {} } return false; }
+          await this._loadProfile(data.user); console.info('KDS: signed back in automatically');
+          return true;
+        } catch (_) { return false; } finally { setTimeout(() => { this._silent = null; }, 0); }
+      })();
+      return this._silent;
+    }
+    // called every minute by the app: make sure this screen is still signed in, fix it quietly if not
+    async ensureSession() {
+      try { const { data } = await this.sb.auth.getSession(); if (data.session) return true; } catch (_) {}
+      return this._silentSignIn();
+    }
+    async signOut() { this._signingOut = true; try { localStorage.removeItem('kds.dev'); } catch (_) {} try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
     _chk({ data, error }) { if (error) throw new Error(error.message); return data; }
 
     async loadConfig() {

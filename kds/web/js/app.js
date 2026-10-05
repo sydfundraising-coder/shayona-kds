@@ -122,7 +122,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · window cards v9';
+  K.VERSION = '5 Oct 2026 · stay signed in v11';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -376,10 +376,12 @@
         <p class="muted">Sign in with the kitchen or admin account.</p>
         <form id="lf"><div class="field"><label>Email</label><input name="e" type="email" autocomplete="username" required></div>
         <div class="field"><label>Password</label><input name="p" type="password" autocomplete="current-password" required></div>
+        <label class="row" style="margin:4px 0 14px;align-items:flex-start;gap:8px"><input type="checkbox" name="k" checked style="margin-top:3px">
+          <span>Keep this device signed in<br><span class="muted" style="font-size:.85em">For kitchen screens and the customer display. The screen signs itself back in if the connection drops. (Not kept for admin accounts.)</span></span></label>
         <button class="btn primary" style="width:100%">Sign in</button><div id="lerr" class="muted" style="margin-top:10px"></div></form></div>`;
     K.$('#lf').onsubmit = async (e) => {
       e.preventDefault(); const f = e.target;
-      try { await api.signIn(f.e.value.trim(), f.p.value); boot(); } catch (err) { K.$('#lerr').textContent = err.message; }
+      try { await api.signIn(f.e.value.trim(), f.p.value, f.k.checked); boot(); } catch (err) { K.$('#lerr').textContent = err.message; }
     };
   }
 
@@ -399,6 +401,12 @@
       K.reload(0);
       setInterval(() => K.reload(0), 20000);            // safety net if live updates drop
       setInterval(() => K.configChanged(), 3 * 60e3);   // safety net for settings/menu
+      if (api.mode === 'live') setInterval(async () => {  // stay signed in: fix a lost sign-in quietly
+        if (!navigator.onLine) return;                   // offline: just wait, never show the sign-in page for that
+        const had = !!api.user, ok = await api.ensureSession();
+        if (!ok) boot();                                  // really signed out and can't sign back in → sign-in page
+        else if (!had) { K.reload(0); K.configChanged(); }
+      }, 60e3);
     } catch (e) {
       console.error(e);
       app.innerHTML = `<div class="page"><h2>Could not start</h2><p class="muted">${K.esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button></div>`;
