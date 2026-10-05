@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BAPS Shayona Cafe · Slideshow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#15243b; --jain:#e23b2e; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#000;overflow:hidden;font-family:'Poppins','Segoe UI',system-ui,sans-serif}
+  .stage{position:fixed;inset:0;background:#000}
+
+  /* two stacked layers we cross-fade between */
+  .slide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}
+  .slide.on{opacity:1}
+  .slide .img{position:absolute;inset:0;background-size:cover;background-position:center;
+     background-repeat:no-repeat;transform:scale(1.06);transition:transform 8s ease-out}
+  .slide.on .img{transform:scale(1.14)}          /* gentle Ken-Burns zoom */
+  .slide .vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;background:#000}
+  /* dark gradient so the caption is always readable */
+  .slide::after{content:"";position:absolute;inset:0;pointer-events:none;
+     background:linear-gradient(to top, rgba(0,0,0,.72) 0%, rgba(0,0,0,.15) 26%, rgba(0,0,0,0) 45%)}
+  .slide.promo::after{display:none}   /* promos have no caption, so no darkening */
+
+  .cap{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:7vh 6vw;color:#fff;
+     display:flex;align-items:flex-end;justify-content:space-between;gap:4vw;
+     opacity:0;transform:translateY(2vh);transition:opacity 1s ease .35s, transform 1s ease .35s}
+  .cap.on{opacity:1;transform:none}
+  .cap .nameWrap{min-width:0;max-width:62vw}
+  .cap .kicker{display:block;font-family:'Poppins',sans-serif;font-weight:700;
+     font-size:1.9vh;letter-spacing:.5vh;text-transform:uppercase;color:#ffd9a0;
+     margin-bottom:1.2vh;text-shadow:0 2px 10px rgba(0,0,0,.6)}
+  .cap .name{display:block;font-family:'Poppins','Segoe UI',system-ui,sans-serif;font-size:7.2vh;
+     font-weight:700;line-height:1.04;letter-spacing:-.12vh;text-shadow:0 4px 22px rgba(0,0,0,.55);
+     white-space:normal;overflow-wrap:anywhere}
+  .cap .jain{color:#ff6f64;font-size:4vh;font-weight:700;margin-left:1vw}
+  .cap .price{font-family:'Poppins',sans-serif;font-size:4.2vh;font-weight:700;
+     color:#15243b;white-space:nowrap;background:linear-gradient(135deg,#ffd98a,#f2ac3c);
+     width:19vh;height:19vh;border-radius:50%;flex:none;display:flex;align-items:center;
+     justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.4);align-self:center}
+
+  /* small logo badge top-left */
+  .badge{position:absolute;top:3.5vh;left:3.5vw;z-index:3;height:9vh;opacity:.96;
+     filter:drop-shadow(0 2px 8px rgba(0,0,0,.5))}
+
+  .msg{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+     text-align:center;color:#fff;background:radial-gradient(120% 120% at 50% 0%,#1d3350,#0a1220);
+     padding:8vw;font-size:3vh;font-weight:600;line-height:1.5}
+  .msg small{display:block;margin-top:2vh;font-size:2vh;font-weight:500;color:#9fb0c8}
+  .hidden{display:none!important}
+  /* NEW seal badge (top-right) for items marked New */
+  .snew{position:absolute;top:3vh;right:3.5vw;z-index:4;width:23vh;height:23vh;
+     background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20200%20200%22%3E%3Cdefs%3E%3CradialGradient%20id%3D%22r%22%20gradientUnits%3D%22userSpaceOnUse%22%20cx%3D%2272%22%20cy%3D%2258%22%20r%3D%22150%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f0554a%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23df2b20%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b31810%22%2F%3E%3C%2FradialGradient%3E%3Cfilter%20id%3D%22ds%22%20x%3D%22-30%25%22%20y%3D%22-30%25%22%20width%3D%22160%25%22%20height%3D%22160%25%22%3E%3CfeDropShadow%20dx%3D%220%22%20dy%3D%223%22%20stdDeviation%3D%224%22%20flood-color%3D%22%23000%22%20flood-opacity%3D%220.4%22%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Cg%20filter%3D%22url(%23ds)%22%20fill%3D%22url(%23r)%22%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%22100%22%20r%3D%2262%22%2F%3E%3Ccircle%20cx%3D%22162.00%22%20cy%3D%22100.00%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22157.28%22%20cy%3D%22123.73%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22143.84%22%20cy%3D%22143.84%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22123.73%22%20cy%3D%22157.28%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22100.00%22%20cy%3D%22162.00%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2276.27%22%20cy%3D%22157.28%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2256.16%22%20cy%3D%22143.84%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2242.72%22%20cy%3D%22123.73%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2238.00%22%20cy%3D%22100.00%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2242.72%22%20cy%3D%2276.27%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2256.16%22%20cy%3D%2256.16%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%2276.27%22%20cy%3D%2242.72%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22100.00%22%20cy%3D%2238.00%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22123.73%22%20cy%3D%2242.72%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22143.84%22%20cy%3D%2256.16%22%20r%3D%2213.5%22%2F%3E%3Ccircle%20cx%3D%22157.28%22%20cy%3D%2276.27%22%20r%3D%2213.5%22%2F%3E%3C%2Fg%3E%3Cg%20transform%3D%22rotate(-16%20100%20100)%22%3E%3Ctext%20x%3D%22100%22%20y%3D%22100%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-family%3D%22Poppins%2C%20Arial%2C%20sans-serif%22%20font-weight%3D%22800%22%20font-size%3D%2244%22%20letter-spacing%3D%221%22%20fill%3D%22%23ffffff%22%20style%3D%22paint-order%3Astroke%22%20stroke%3D%22rgba(120%2C10%2C4%2C.25)%22%20stroke-width%3D%221%22%3ENEW%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E");background-size:contain;background-repeat:no-repeat;
+     background-position:center;filter:drop-shadow(0 6px 16px rgba(0,0,0,.4))}
+  .snew[hidden]{display:none}
+  /* Join-us QR codes (top-left) on every slide — transparent, so only the small
+     white QR tiles cover the photo (a QR needs its white square to scan). */
+  .tgqr{position:absolute;top:3vh;left:3vw;z-index:4;background:transparent;padding:0;
+     display:flex;flex-direction:column;align-items:center}
+  .tgqr .qrow{display:flex;gap:2vh;align-items:flex-start}
+  .tgqr .qcell{display:flex;flex-direction:column;align-items:center;gap:.7vh}
+  .tgqr img{width:13vh;height:13vh;display:block;border-radius:.8vh;background:#fff;
+     padding:.8vh;box-shadow:0 6px 20px rgba(0,0,0,.45)}
+  .tgqr .qlbl{font-family:'Poppins',sans-serif;font-weight:800;font-size:1.75vh;letter-spacing:.03vh;
+     text-shadow:0 0 3px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,1),0 2px 8px rgba(0,0,0,.7)}
+  .tgqr .qlbl.tg{color:#7fd0f8}
+  .tgqr .qlbl.wa{color:#57e79e}
+  .tgqr .cap2{margin-top:1vh;font-family:'Poppins',sans-serif;font-weight:700;
+     font-size:1.7vh;color:#fff;line-height:1.2;max-width:30vh;text-align:center;
+     text-shadow:0 0 3px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,1),0 2px 8px rgba(0,0,0,.7)}
+  .tgqr[hidden]{display:none}
+  /* full-screen "we're closed" notice overlay */
+  .notice{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+     text-align:center;padding:8vw;background:radial-gradient(120% 120% at 50% 0%,#1d3350,#0a1220);color:#fff}
+  .notice[hidden]{display:none}
+  .notice .nkicker{font-family:'Poppins',sans-serif;font-weight:700;font-size:2.4vh;letter-spacing:.7vh;
+     text-transform:uppercase;color:#ffd9a0;margin-bottom:3vh}
+  .notice .ntitle{font-family:'Poppins',sans-serif;font-weight:700;font-size:9vh;line-height:1.04;margin-bottom:3vh}
+  .notice .nmsg{font-family:'Poppins',sans-serif;font-weight:500;font-size:3.6vh;line-height:1.4;
+     color:#e7eef7;max-width:74vw;margin:0 auto;white-space:pre-line}
+  .notice .nhours{margin-top:5vh;background:rgba(255,255,255,.08);border:1px solid rgba(255,217,160,.4);
+     border-radius:1.4vh;padding:2.2vh 3vw;display:inline-block}
+  .notice .nhours[hidden]{display:none}
+  .notice .nhours .nh-h{font-family:'Poppins',sans-serif;font-weight:700;font-size:2.3vh;letter-spacing:.6vh;
+     text-transform:uppercase;margin-bottom:1.2vh;color:#ffd9a0}
+  .notice .nhours div{font-family:'Poppins',sans-serif;font-weight:500;font-size:3vh;line-height:1.5;color:#fff}
+</style>
+<script src="config.js?v=20261005h"></script>
+<script src="js/vendor/supabase.js?v=20261005h"></script>
+<script src="js/demo-menu.js?v=20261005h"></script>
+<script src="js/menu-feed.js?v=20261005h"></script>
+<script src="js/auto-update.js?v=20261005h"></script>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="slide" id="s0"><div class="img"></div><video class="vid" muted playsinline preload="auto"></video></div>
+  <div class="slide" id="s1"><div class="img"></div><video class="vid" muted playsinline preload="auto"></video></div>
+  <div class="snew" id="snew" hidden></div>
+  <div class="tgqr" id="tgqr"><div class="qrow"><div class="qcell"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAXQAAAF0CAYAAAAzY8JTAAAAAklEQVR4AewaftIAAApdSURBVO3BwbEctrIlwMOKawM8gBcwH17AAzih0WaWWuAHO16zmJm//vlXAPjjVQBooQJACxUAWqgA0EIFgBYqALRQAaCFCgAtVABooQJACxUAWvjJozFX+H3u2fmkMVde3LPzYsyVF/fsvBhz5cU9O5805sqLe3ZejLny4p6dbzLmCr/PPTsvKgC0UAGghQoALVQAaKECQAsVAFqoANBCBYAWKgC0UAGghQoALfzkw+7Z+ZuMufJJY668uGfnm4y58uKenRdjrvzJ7tl5MebKJ92z80n37PxNxlz5pAoALVQAaKECQAsVAFqoANBCBYAWKgC0UAGghQoALVQAaKECQAs/+TJjrnyTe3a+yT07nzTmyjcZc+WT7tl5MebKJ4258kn37PzJxlz5JvfsfJMKAC1UAGihAkALFQBaqADQQgWAFioAtFABoIUKAC1UAGihAkALP6G1MVc+6Z6dF2OufJMxV17cs/NizJVPumcH/r8KAC1UAGihAkALFQBaqADQQgWAFioAtFABoIUKAC1UAGihAkALP+GPMubKi3t2Xoy58kn37HzSmCsv7tn5pHt2PmnMlRf37NBXBYAWKgC0UAGghQoALVQAaKECQAsVAFqoANBCBYAWKgC0UAGghZ98mXt2+G/37LwYc+WbjLnySffsfJMxV/h97tnhv1UAaKECQAsVAFqoANBCBYAWKgC0UAGghQoALVQAaKECQAsVAFr4yYeNucLvM+bKi3t2Xoy58k3u2Xkx5sqLe3ZejLny4p6dF2OuvLhn58WYKy/u2fmkMVf4fSoAtFABoIUKAC1UAGihAkALFQBaqADQQgWAFioAtFABoIUKAC38+udfgf+jMVde3LPzYsyVT7pn58WYK590zw78X1UAaKECQAsVAFqoANBCBYAWKgC0UAGghQoALVQAaKECQAsVAFr49c+/8mDMlRf37LwYc+XFPTsvxlx5cc/OizFXXtyz80ljrry4Z+dPNubKJ92z82LMlRf37HzSmCsv7tn5JmOuvLhn55PGXHlxz84nVQBooQJACxUAWqgA0EIFgBYqALRQAaCFCgAtVABooQJACxUAWvjJh4258uKenU+6Z+fFmCsv7tl5MebKi3t2PmnMlU+6Z4f/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" alt="Telegram QR"><span class="qlbl tg">Telegram</span></div><div class="qcell"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAYAAAB+TFE1AAAAAklEQVR4AewaftIAAAysSURBVO3BsZFot7ItyMWKtgEewAuYDy/gAZzgUBnxCojg/qx+JzP/+vsfAYD/WAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANBABQAaqABAAxUAaOAnj8Zc4d9zz86Xxlz50j07nYy58qV7dr405sqLe3ZejLnypXt2frMxV/j33LPzogIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANPCTj92z8ycZc+VLY650MubKi3t2Xoy58qV7dl6MufKle3a+dM/OizFXXoy58uKenRdjrry4Z+dL9+z8ScZc+VIFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGjgJ82MudLJPTt/knt2vjTmypfu2Xkx5sqLe3ZejLnyYsyVF/fs/GZjrry4Z+c3G3Olk3t2OqkAQAMVAGigAgANVACggQoANFABgAYqANBABQAaqABAAxUAaKACAA38hP/T7tl5MebKi3t2vnTPzm92z86f5J6dF2OuvBhz5cU9O/weFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggZ/wq9yz08mYK18ac+XFPTudjLnypXt2Ohlz5cU9O/D/qwBAAxUAaKACAA1UAKCBCgA0UAGABioA0EAFABqoAEADFQBooAIADfykmXt2+D3u2Xkx5sqLe3ZejLny4p6dF2OufOmenS+NucJ/554d/rcKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANDATz425gr/njFXXtyzw3/nnp0XY668uGfnS/fsvBhz5Utjrry4Z+dLY67w76kAQAMVAGigAgANVACggQoANFABgAYqANBABQAaqABAAxUAaKACAA385NE9O/weY658acyVP8k9O7/ZPTudjLnSyT07/HcqANBABQAaqABAAxUAaKACAA1UAKCBCgA0UAGABioA0EAFABqoAEADP3k05sqLe3b+JGOuvLhnp5N7dr405konY668uGfnxZgrL+7Z+dKYKy/u2fnSPTsvxlx5MebKl+7Z+dKYK53cs/OlCgA0UAGABioA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQwF9//yMfGnOlk3t2frMxV17cs/NizJUX9+x0MubKl+7Z+dKYK1+6Z+dLY650cs9OJ2Ou/Enu2XlRAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANBABQAa+Ekz9+x8acyVTu7ZeXHPzpfu2fnSmCsv7tl5cc/OizFXXoy58uKenS/ds/Ob3bPzYsyVF2OuvLhnp5N7dl6MufKle3a+VAGABioA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGvjr73/kwZgrL+7Z4b8z5sqLe3a+NObKi3t2Xoy58uKenRdjrry4Z4f/zpgr/Hfu2XlRAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANBABQAa+An/qjFXvnTPzpfGXHlxz86Xxlz50pgrXxpz5U9yz86LMVde3LPz4p6dF2OuvLhnh39PBQAaqABAAxUAaKACAA1UAKCBCgA0UAGABioA0EAFABqoAEADFQBo4CeP7tn5k4y58uKenRdjrrwYc4V/zz07L8ZceXHPTidjrnRyz04n9+x0MubKb3bPzosKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANDAX3//Iw/GXHlxz86LMVf+JPfsfGnMlS/ds/OlMVde3LPTyZgrndyz82LMlRf37HxpzJXf7J6dTsZceXHPzpcqANBABQAaqABAAxUAaKACAA1UAKCBCgA0UAGABioA0EAFABqoAEADP/nYmCsv7tl5MebKi3t2frMxV17cs9PJmCsv7tl5MebKl+7ZeXHPzpfGXPnSPTsvxlz50j07L8ZceXHPzosxV7405sqX7tl5MebKi3t2XlQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAZ+8rF7dr50z86Xxlz5zcZceXHPTidjrnzpnp0XY6586Z6dL4258uKenS/ds/MnGXPlxT07f5IKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANDAT5oZc+U3u2fnxZgrL+7ZeTHmym92z86LMVd+szFXfrN7dl6MufLinp0X9+y8GHPlxT07Xxpz5Uv37Ly4Z+dLFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggZ88umfnxZgrndyz86UxVzq5Z+dLY650cs/OizFXXtyz08mYKy/u2Xkx5sqLe3Y6GXPlxT07L8ZceXHPzm825sqLe3ZeVACggQoANFABgAYqANBABQAaqABAAxUAaKACAA1UAKCBCgA0UAGABv76+x95MObKi3t2vjTmSif37LwYc+VL9+y8GHPlS/fsdDLmym92z04nY668uGfnxZgrL+7Z6WTMld/snp0vVQCggQoANFABgAYqANBABQAaqABAAxUAaKACAA1UAKCBCgA0UAGABn7y6J6dL4258uKenU7GXOlkzJUv3bPzYsyVF/fsvBhzpZN7djoZc+VPMubKi3t2Xoy58uKenRdjrry4Z+c3qwBAAxUAaKACAA1UAKCBCgA0UAGABioA0EAFABqoAEADFQBooAIADfz19z/yYMyVL92z82LMlRf37HQy5sqLe3a+NObKi3t2vjTmypfu2Xkx5kon9+y8GHPlxT07L8Zc+dI9O52MufKb3bPTSQUAGqgAQAMVAGigAgANVACggQoANFABgAYqANBABQAaqABAAxUAaOAnH7tn58WYK18ac4X/7Z6dTu7ZeTHmyosxVzq5Z6eTMVde3LPD/3bPzosxV17cs/NizJUX9+x8qQIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANPCTX+6enS+NufLinp0XY668GHPlxT07Xxpz5Uv37Hzpnp0/yT07Xxpz5cU9O18ac+VL9+y8GHPlS2OuvLhnp5MKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAYqANDATz425konY668uGfnxZgrnYy58uKenS/ds/NizJUX9+y8GHPlS/fsfGnMlS/ds/Pinp0XY678ZmOudHLPzosxV750z86LCgA0UAGABioA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQwE8e3bPzm92z86V7dr405sqLe3a+dM/Ob3bPzosxV7405spvNubKi3t2Xoy58uKenU7GXHlxz86LMVde3LPzYsyVL1UAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAZ+8mjMFf499+y8uGfnxZgrX7pn5zcbc+U3u2fnxZgrL8Zc+dKYK52MufLinp3fbMyVF/fsfKkCAA1UAKCBCgA0UAGABioA0EAFABqoAEADFQBooAIADVQAoIEKADTwk4/ds/MnGXPlN7tnh//tnp0v3bPzYsyVL92z82LMld/snp1Oxlz5k1QAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANFABgAZ+0syYK53cs/Ob3bPzpTFXXtyz8+KenS/ds9PJmCsv7tn50pgrL+7Z+dKYKy/GXPmT3LPzYsyVTioA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAM/4f+0MVde3LPzpTFXOrln58WYK1+6Z+dLY668uGfnT3LPzosxVzoZc+VLY668uGfnRQUAGqgAQAMVAGigAgANVACggQoANFABgAYqANBABQAaqABAAxUAaOAn8P/QPTtfGnOFf8+YKy/u2Xkx5sqLe3ZejLnyJ7ln58WYK51UAKCBCgA0UAGABioA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGftLMPTv83zXmyot7dl7cs/NizJUv3bPzpTFXvnTPDr/HmCsv7tnppAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANPCTj425wr9nzJUX9+y8GHOlkzFXXtyz8+KenS+NufInGXPlxT07L8Zc+c3u2fnSmCsvxlx5cc/OlyoA0EAFABqoAEADFQBooAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAN//f2PAMB/rAIADVQAoIEKADRQAYAGKgDQQAUAGqgAQAMVAGigAgANVACggQoANPD/AaAc73FS6B5+AAAAAElFTkSuQmCC" alt="WhatsApp QR"><span class="qlbl wa">WhatsApp</span></div></div><div class="cap2">Scan to join us for regular cafe updates</div></div>
+  <div class="cap" id="cap">
+    <div class="nameWrap"><span class="kicker">Shayona Cafe</span><span class="name" id="capName"></span></div>
+    <div class="price" id="capPrice"></div>
+  </div>
+</div>
+<div class="msg hidden" id="msg"></div>
+<div class="notice" id="notice" hidden>
+  <div>
+    <div class="nkicker">Shayona Cafe</div>
+    <div class="ntitle" id="nTitle"></div>
+    <div class="nmsg" id="nMsg"></div>
+    <div class="nhours" id="nHours" hidden>
+      <div class="nh-h">Opening Hours</div>
+      <div>Monday &ndash; Saturday: 10:00AM to 7:45PM</div>
+      <div>Sunday: 10:15AM to 1:45PM &amp; 3:30PM to 7:45PM</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LOGO = ""; /* optional: a data-URI logo; left blank to keep it clean */
+const HOLD_MS = 6000;      // seconds each photo stays
+const RELOAD_MS = 15000;   // re-check availability every 15 seconds
+
+function titleCase(s){return String(s).replace(/\w\S*/g,t=>t.charAt(0).toUpperCase()+t.slice(1).toLowerCase());}
+function money(p){return p==null?'':'$'+Number(p).toFixed(2);}
+
+let slides=[], idx=0, layer=0, timer=null, videoPlaying=false;
+const els=[document.getElementById('s0'),document.getElementById('s1')];
+const imgs=[els[0].querySelector('.img'),els[1].querySelector('.img')];
+const vids=[els[0].querySelector('.vid'),els[1].querySelector('.vid')];
+const cap=document.getElementById('cap'), capName=document.getElementById('capName'), capPrice=document.getElementById('capPrice');
+const msg=document.getElementById('msg');
+
+function showMessage(html){ msg.innerHTML=html; msg.classList.remove('hidden'); }
+function hideMessage(){ msg.classList.add('hidden'); }
+
+function preload(src){ return new Promise(res=>{ const i=new Image(); i.onload=()=>res(true); i.onerror=()=>res(false); i.src=src; }); }
+function clearTimer(){ if(timer){ clearTimeout(timer); timer=null; } }
+function scheduleAdvance(ms){ clearTimer(); timer=setTimeout(step, ms); }
+function advance(){ videoPlaying=false; clearTimer(); step(); }
+
+async function step(){
+  if(!slides.length) return;
+  // pick the next slide; skip broken IMAGES, but always try videos
+  let s=null, ok=false, tries=0;
+  while(tries < slides.length){
+    s = slides[idx % slides.length];
+    idx = (idx + 1) % slides.length;
+    tries++;
+    if(s.video){ ok=true; break; }
+    ok = await preload(s.image);
+    if(ok) break;
+  }
+  if(!ok){
+    clearTimer();
+    els[0].classList.remove('on'); els[1].classList.remove('on'); cap.classList.remove('on');
+    showMessage("Photos couldn't be loaded."+
+      "<small>Check this screen's internet connection, or add photos in KDS → Menu → Photos &amp; videos.</small>");
+    return;
+  }
+  hideMessage();
+  const next = 1 - layer;
+  const imgEl=imgs[next], vidEl=vids[next];
+  // reset this layer's media before showing the new slide
+  try{ vidEl.pause(); }catch(_){}
+  vidEl.onended=null; vidEl.onerror=null; vidEl.removeAttribute('src'); vidEl.load(); vidEl.style.display='none';
+  imgEl.style.display='';
+  // caption: dishes show name + price; promos show nothing
+  els[next].classList.toggle('promo', !!s.promo);
+  if(!s.promo){ capName.textContent=titleCase(s.name); capPrice.textContent=money(s.price); }
+  const sn=document.getElementById('snew'); if(sn) sn.hidden = !s.isNew;
+
+  if(s.video){
+    imgEl.style.display='none'; vidEl.style.display='block';
+    videoPlaying=true;
+    vidEl.onended=()=>advance();
+    vidEl.onerror=()=>advance();
+    vidEl.src=s.image;
+    try{ vidEl.currentTime=0; }catch(_){}
+    const pr=vidEl.play();
+    if(pr && pr.catch) pr.catch(()=>{ scheduleAdvance(HOLD_MS); }); // autoplay blocked → fall back to a timer
+  }else{
+    imgEl.style.backgroundImage = `url("${s.image}")`;
+  }
+
+  // pause the outgoing layer's video (if any) as it fades away
+  try{ vids[layer].pause(); }catch(_){}
+  els[next].classList.add('on');
+  els[layer].classList.remove('on');
+  cap.classList.toggle('on', !s.promo);
+  layer = next;
+  if(!s.video) scheduleAdvance(HOLD_MS);
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/slideshow',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    const fresh = (data.slides||[]);
+    if(!fresh.length){
+      clearTimer(); videoPlaying=false; slides=[];
+      els[0].classList.remove('on'); els[1].classList.remove('on'); cap.classList.remove('on');
+      if((data.availableItems||0)===0){
+        showMessage("No items are available right now.");
+      }else{
+        showMessage("No photos to show yet."+
+          "<small>Add photos or videos in <b>KDS → Menu → Photos &amp; videos</b>.</small>");
+      }
+      return;
+    }
+    hideMessage();
+    slides = fresh;
+    if(!timer && !videoPlaying){ idx=0; step(); }   // (re)start the loop only if idle
+  }catch(e){
+    // Only surface an error if we have nothing on screen yet.
+    if(!slides.length){
+      showMessage("Can't reach the menu."+"<small>Check this screen's internet connection. It will retry automatically.</small>");
+    }
+  }
+}
+
+if(LOGO){ const b=new Image(); b.className='badge'; b.src=LOGO; document.getElementById('stage').appendChild(b); }
+// "We're closed" notice overlay — pushed from the control panel.
+async function pollNotice(){
+  try{
+    const n=await fetch('/api/notice',{cache:'no-store'}).then(r=>r.json());
+    const el=document.getElementById('notice');
+    if(n&&n.active){
+      document.getElementById('nTitle').textContent=n.title||'We are closed';
+      document.getElementById('nMsg').textContent=n.message||'';
+      document.getElementById('nHours').hidden = !n.hours;
+      el.hidden=false;
+    }else{ el.hidden=true; }
+  }catch(e){}
+}
+pollNotice(); setInterval(pollNotice, 8000);
+showMessage("Loading menu photos…");
+load(); setInterval(load, RELOAD_MS);
+</script>
+</body>
+</html>
