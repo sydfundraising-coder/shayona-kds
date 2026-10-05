@@ -122,7 +122,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · window v4';
+  K.VERSION = '5 Oct 2026 · lock v8';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -170,12 +170,27 @@
     if (p && !/\.html?$/i.test(p) && !location.hash) location.replace('#/' + p);
   })();
 
+  // ---- device lock: a kitchen tablet can be locked to its own screen. Staff (non-admin) accounts on a
+  // locked device only ever see that screen — the back button shows just that station.
+  K.lock = {
+    get() { try { return JSON.parse(localStorage.getItem('kds.lock') || 'null'); } catch (_) { return null; } },
+    set(name, arg, label) { try { localStorage.setItem('kds.lock', JSON.stringify({ name, arg: arg || null, label })); } catch (_) {} },
+    clear() { try { localStorage.removeItem('kds.lock'); } catch (_) {} },
+    active() { return api.mode === 'live' ? api.role !== 'admin' && !!this.get() : !!this.get() && !K.demoAdminUnlocked; },
+    hash(l) { return '#/' + l.name + (l.arg ? '/' + l.arg : ''); },
+  };
   K.render = function (dataOnly = false) {
     let r = K.route();
     if (!K.routes[r.name] && r.name) {
       const short = SHORT[slug(r.name)];
       if (short && K.routes[short]) { r = { ...r, name: short }; }
       else { const stn = K.stationByShort(r.name); if (stn) r = { ...r, name: 'station', arg: stn.id }; }
+    }
+    if (K.lock.active()) {
+      const L = K.lock.get();
+      const allowed = (r.name === L.name && (r.arg || null) === (L.arg || null)) || r.name === 'availability' || r.name === 'home' || r.name === 'locked';
+      if (!allowed) { if (!dataOnly) location.replace('#/'); return; }
+      if (r.name === 'home') r = { ...r, name: 'locked' };
     }
     const fn = K.routes[r.name] || K.routes.home;
     if (!dataOnly) { K.pageRefresh = null; hideBanner(); }
@@ -273,6 +288,43 @@
   }, 1000);
 
   // ------------------------------------------------------------------ home
+  K.routes.locked = function () {
+    K.applyTheme(K.prefs('global', { theme: 'dark' }));
+    const L = K.lock.get();
+    document.getElementById('app').innerHTML = `<div class="page lockpage">
+      <div class="muted">This device is set to</div>
+      <a class="locktile" href="${K.lock.hash(L)}"><b>${K.esc(L.label || 'Kitchen screen')}</b><span>Tap to open</span></a>
+      <button class="btn sm" id="unlock">🔒 Unlock this device (admin)</button>
+      <p class="faint" style="font-size:.8em;margin-top:24px">KDS version: ${K.esc(K.VERSION)}</p></div>`;
+    K.$('#unlock').onclick = () => K.unlockDevice();
+  };
+  K.routes.locked.static = true;
+  K.unlockDevice = function () {
+    K.modal('Unlock this device', `<p class="muted" style="margin-top:0">An admin signs in here to unlock. The kitchen account stays signed in on this device.</p>
+      <form id="ulf"><div class="field"><label>Admin email</label><input name="e" type="email" autocomplete="off" required></div>
+      <div class="field"><label>Password</label><input name="p" type="password" autocomplete="off" required></div>
+      <div id="ulerr" class="muted"></div>
+      <div class="actions"><span class="grow"></span><button type="button" class="btn" id="ulx">Cancel</button><button class="btn primary">Unlock</button></div></form>`, (w, close) => {
+      K.$('#ulx', w).onclick = close;
+      K.$('#ulf', w).onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        try {
+          if (api.mode === 'live') {
+            const cfg = window.KDS_CONFIG;
+            const tmp = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'kds-unlock-check' } });
+            const { data, error } = await tmp.auth.signInWithPassword({ email: f.e.value.trim(), password: f.p.value });
+            if (error) throw error;
+            const { data: prof } = await tmp.from('profiles').select('role').eq('user_id', data.user.id).maybeSingle();
+            await tmp.auth.signOut().catch(() => {});
+            if (prof?.role !== 'admin') throw new Error('That account is not an admin.');
+          } else K.demoAdminUnlocked = true;
+          K.lock.clear(); close(); K.toast('Device unlocked'); location.hash = '#/'; K.render();
+        } catch (err) { K.$('#ulerr', w).textContent = err.message; }
+      };
+      K.$('input', w).focus();
+    });
+  };
+
   K.routes.home = function () {
     K.applyTheme(K.prefs('global', { theme: 'dark' }));
     const s = st.cfg.stations.filter((x) => x.active);
@@ -287,7 +339,7 @@
           <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
-        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
+        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> <a href="#/admin?tab=health">Run the health check →</a> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
         <div class="tiles">
           ${s.map((x) => `<a class="tile" style="--c:${K.esc(x.colour)}" href="#/station/${x.id}"><b>${K.esc(x.name)}</b><span>Shows only items made at this station</span></a>`).join('') || '<div class="muted">No stations yet — add them in Admin.</div>'}

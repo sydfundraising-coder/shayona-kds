@@ -406,3 +406,40 @@ table.t tr:hover td{background:var(--card2)}
 .cc1{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:1.1em;margin-bottom:2px}
 .cc2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .coming-note{color:var(--muted);font-size:.85em;margin-top:6px}
+.ctag{display:inline-block;font-size:.8em;font-weight:800;color:var(--warn);border:1px solid var(--warn);border-radius:6px;padding:0 5px;margin-left:3px}
+.coming-note.warn{color:var(--warn)}
+.item.pending{opacity:.6}
+.item.pending .istatus{font-weight:700}
+/* admin health check */
+.hc{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:10px 12px;margin:8px 0}
+.hc.warn{border-left-color:var(--warn)}.hc.bad{border-left-color:var(--late)}
+.hc-i{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;flex:0 0 auto;background:var(--ok);color:#06210f}
+.hc.warn .hc-i{background:var(--warn);color:#241500}.hc.bad .hc-i{background:var(--late);color:#fff}
+.hc .muted{font-size:.88em;margin-top:2px}.hc-fix{font-size:.88em;margin-top:4px}
+/* front counter split: Preparing | Now serving, each side scrolls on its own */
+.cols.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr);height:calc(100dvh - 64px);align-items:stretch;padding-top:10px}
+.cols.two .col{overflow:auto;min-height:0}
+.cols.two .col h3{font-size:1.25em;padding:12px 14px;top:0;text-transform:uppercase;letter-spacing:.04em}
+.col.prep h3{color:var(--warn)}
+.col.ready h3{color:var(--ok)}
+.pgrid{padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;align-items:start}
+.pcard{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:8px 10px}
+.pcard.online{border-left:6px solid var(--online)}
+.pcard.st-warn{border-color:var(--warn)}.pcard.st-late{border-color:var(--late)}
+.pcard.cancelled{opacity:.6;text-decoration:line-through}
+.pc-h{display:flex;align-items:center;gap:8px}
+.pc-h .ono{font-size:1.6em;font-weight:900;line-height:1}
+.pc-h .who{color:var(--muted);font-size:.85em;max-width:7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iconbtn.sm{padding:2px 8px;min-height:0;font-size:1em}
+.pc-b{margin:4px 0 2px;font-size:.78em}
+.pc-it{display:flex;gap:6px;padding:4px 0;border-top:1px solid var(--line);font-size:1.05em}
+.pc-q{font-weight:900;min-width:2em}
+.pc-n{font-weight:800;flex:1;min-width:0}
+.pc-s{display:block;font-size:.78em;font-weight:600;color:var(--muted)}
+.pc-ok{color:var(--ok);font-weight:800}
+@media (max-width:760px){.cols.two{height:auto}.cols.two .col{overflow:visible}}
+/* locked device home */
+.lockpage{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:16px;text-align:center}
+.locktile{display:flex;flex-direction:column;gap:6px;padding:40px 60px;border-radius:18px;background:var(--card);border:2px solid var(--accent);color:var(--text);text-decoration:none;min-width:min(90vw,420px)}
+.locktile b{font-size:2.2em}.locktile span{color:var(--muted)}
+.lockopt{gap:8px;font-size:.95em;max-width:560px;text-align:left;align-items:flex-start}

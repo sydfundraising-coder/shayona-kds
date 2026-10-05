@@ -200,17 +200,48 @@
     const items = visibleItems(m, kind, ctx.p);
     return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
-      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other" style="padding:6px">Nothing ready yet</li>'}</ul>
+      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}${!items.length && !(kind === 'front' && m.items.some((i) => i.qty_window < i.qty)) ? '<li class="t-other" style="padding:6px">Nothing ready yet</li>' : ''}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
       ${kind === 'front' && !cancelled ? frontExtra(o) : ''}
       <div class="t-foot">${foot}</div></div>`;
   }
   function frontExtra(o) {
     const pk = K.pickup(o);
-    if (pk.allReady) return '';
-    const todo = pk.items.filter((i) => i.qty_window < i.qty).map((i) => `${esc(i.item_name)} ×${i.qty - i.qty_window}`);
-    if (!todo.length && !pk.readyOrDone) return '';
-    return `<div class="t-other">${pk.readyOrDone ? `<b style="color:var(--warn)">${pk.readyOrDone} of ${pk.total} ready</b> · ` : ''}${todo.length ? `Still to come: ${todo.join(', ')}` : ''}</div>`;
+    if (pk.allReady || !pk.readyOrDone) return '';
+    return `<div class="t-other"><b style="color:var(--warn)">${pk.readyOrDone} of ${pk.total} ready</b></div>`;
+  }
+  // front counter "Preparing" side: compact card per order so many orders fit, names still large
+  function prepCard(m, ctx) {
+    const { o } = m, cancelled = o.status === 'cancelled', ageCls = K.ageClass(o.received_at, ctx.th);
+    const its = m.items;
+    const done = its.reduce((a, i) => a + i.qty_front, 0), total = its.reduce((a, i) => a + i.qty, 0);
+    const line = (i) => {
+      const ready = i.qty_window - i.qty_front, rem = i.qty - i.qty_front;
+      if (rem <= 0) return '';
+      const st = ready > 0 && ready >= rem ? '<span class="pc-ok">✓ ready</span>' : ready > 0 ? `<span class="pc-ok">✓ ${ready} ready</span> · ${whereIs(i)}` : whereIs(i);
+      return `<div class="pc-it"><span class="pc-q">${rem}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}<span class="pc-s">${st}</span></span></div>`;
+    };
+    return `<div class="pcard ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+      <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}
+        <button class="iconbtn sm" data-act="${cancelled ? 'dismiss' : 'force'}" data-order="${o.id}" data-stage="front" title="${cancelled ? 'Dismiss' : 'More'}">${cancelled ? '✕' : '⋮'}</button></div>
+      <div class="pc-b">${badges(o)}</div>
+      ${its.map(line).join('')}
+      ${done ? `<div class="pc-s" style="margin-top:4px">${done} of ${total} collected</div>` : ''}</div>`;
+  }
+  // where an item is when it isn't at the front yet
+  function whereIs(it) {
+    const stn = esc(K.stationById(it.station_id)?.name || 'kitchen');
+    if (!it.station_id && !it.no_prep) return 'No station set';
+    if (it.qty_prep > it.qty_window) return 'At window — being finished';
+    if (it.skip_window) return `Making at ${stn} · comes straight here`;
+    return it.no_prep ? 'At window' : `Making at ${stn}${it.qty > 1 ? ` (${it.qty_prep}/${it.qty} made)` : ''}`;
+  }
+  // front counter: items still to come, same size as ready items (faded, not tappable)
+  function pendingRows(o, items) {
+    return items.filter((it) => it.qty_window < it.qty).map((it) => `<li class="item waiting pending">
+      <div class="qty"><span>${it.qty - it.qty_window}</span></div>
+      <div><div class="iname">${esc(it.item_name)}${it.variation_name ? ` <span class="ivar">· ${esc(it.variation_name)}</span>` : ''}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}<div class="istatus">${whereIs(it)}</div></div>
+      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}</div></li>`).join('');
   }
   function listRow(m, kind, ctx) {
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
@@ -218,7 +249,7 @@
     const foot = t.match(/<div class="t-foot">([\s\S]*)<\/div><\/div>$/)?.[1] || '';
     return `<div class="lrow ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
       <div class="lhead"><span class="ono">${esc(ono(o))}</span>${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
-      <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other">Nothing ready yet</li>'}</ul>
+      <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}</ul>
       <div class="row">${foot}</div></div>`;
   }
   function summaryView(model, ctx) {
@@ -323,6 +354,7 @@
     if (kind === 'station' && !station) { location.hash = '#/'; return; }
     const key = kind === 'station' ? 'station:' + station.id : kind;
     const p = K.prefs(key, { ...DEFAULTS, layout: LAYOUTS[kind][0][0] });
+    if (kind === 'front' && p.splitV !== 1) { p.layout = 'columns'; p.splitV = 1; K.savePrefs(key, p); }   // new split view, once
     K.applyTheme(p);
     const title = station ? station.name : kind === 'window' ? 'Order handling window' : 'Front counter';
     const colour = station ? station.colour : kind === 'window' ? 'var(--ok)' : 'var(--info)';
@@ -395,9 +427,10 @@
     let html;
     if (!st.loaded) html = '<div class="board"><div class="empty"><div class="big">⏳</div>Loading orders…</div></div>';
     else if (kind === 'front' && p.layout === 'columns') {
+      const pcol = (title, rows) => `<div class="col prep"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="pgrid">${rows.map((m) => prepCard(m, ctx)).join('') || '<div class="muted" style="padding:10px">Nothing in the kitchen</div>'}</div></div>`;
       const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
       html = `<div class="cols two" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
-        ${col('Preparing', '', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
+        ${pcol('Preparing', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
         ${col('Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small>', 'ready', model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable)))}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
@@ -418,19 +451,24 @@
   // station taps items done, so the window always sees what's coming (and why the screen may be empty).
   function comingStrip(ctx, shown) {
     const list = [];
+    let blocked = 0;
     for (const o of st.orders) {
       if (['completed', 'ready', 'cancelled'].includes(o.status)) continue;
-      const its = liveItems(o).filter((i) => (i.station_id || i.no_prep) && !i.skip_window && i.qty_prep < i.qty);
+      // every item that hasn't reached the window yet (and isn't ready at the front already)
+      const its = liveItems(o).filter((i) => i.qty_prep < i.qty && i.qty_window < i.qty);
       if (its.length) list.push({ o, its });
+      blocked += its.filter((i) => i.skip_window || (!i.station_id && !i.no_prep)).length;
     }
     list.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at));
     if (!list.length) return '';
     const units = list.reduce((a, x) => a + x.its.reduce((b, i) => b + i.qty - i.qty_prep, 0), 0);
-    const note = !shown ? `<div class="coming-note">Items appear here as soon as a station taps them <b>done</b> on its KDS screen.</div>` : '';
+    const tag = (i) => i.skip_window ? '<span class="ctag">skips window</span>' : (!i.station_id && !i.no_prep) ? '<span class="ctag">no station</span>' : `<span class="muted">· ${esc(K.stationById(i.station_id)?.name || 'kitchen')}</span>`;
+    const note = (blocked ? `<div class="coming-note warn">⚠ Items tagged <b>skips window</b> or <b>no station</b> will not come to this screen — change them in <b>Admin → Item routing</b>.</div>` : '')
+      + (!shown ? `<div class="coming-note">Items appear here as soon as a station taps them <b>done</b> on its KDS screen.</div>` : '');
     if (ctx.p.coming === false || ctx.p.coming === 'false') return note ? `<div class="coming">${note}</div>` : '';
     return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
       <div class="coming-row">${list.map(({ o, its }) => `<div class="cchip ${o.is_online ? 'online' : ''}"><div class="cc1"><b>${esc(ono(o))}</b>${timerHtml(o.received_at, ctx.th)}</div>
-        ${its.map((i) => `<div class="cc2">${i.qty - i.qty_prep}× ${esc(i.item_name)} <span class="muted">· ${esc(K.stationById(i.station_id)?.name || 'no prep')}</span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
+        ${its.map((i) => `<div class="cc2">${i.qty - i.qty_prep}× ${esc(i.item_name)} ${tag(i)}</div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
   function routeOf(c) {
@@ -518,11 +556,15 @@
       <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
+      <div class="field"><label>This device</label><div class="row">${K.lock.get() ? `<span>🔒 Locked to <b>${esc(K.lock.get().label || '')}</b></span><button class="btn sm" id="dlock-off">Unlock (admin)</button>` : `<span class="muted">Not locked</span><button class="btn sm" id="dlock-on">🔒 Lock to this screen</button>`}</div>
+        <div class="muted" style="font-size:.82em;margin-top:4px">When locked, staff accounts on this device only see this screen. Admin accounts are never locked.</div></div>
       ${ctx.kind === 'window' ? `<div class="field"><label>"Still in the kitchen" strip (orders not ready yet)</label>${seg('coming', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
       w.querySelector('.body').onclick = (e) => {
+        if (e.target.closest('#dlock-on')) { K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim()); w.remove(); K.toast('This device is now locked to this screen'); return; }
+        if (e.target.closest('#dlock-off')) { w.remove(); K.unlockDevice(); return; }
         const b = e.target.closest('[data-v]'); if (!b) return;
         const name = b.parentElement.dataset.pref; let v = b.dataset.v;
         if (v === 'true' || v === 'false') v = v === 'true';
@@ -568,11 +610,14 @@
       return;
     }
     const o = document.createElement('div'); o.className = 'start';
+    const staff = api.mode === 'live' ? api.role !== 'admin' : true;
     o.innerHTML = `<h2>${esc(K.$('.topbar .title').textContent)}</h2><div class="muted">Tap to start this screen (turns on the new-order chime and keeps the screen awake)</div>
-      <div class="row"><button class="btn primary" data-go="1">▶ Start screen</button><button class="btn" data-go="fs">Start full screen</button></div>`;
+      <div class="row"><button class="btn primary" data-go="1">▶ Start screen</button><button class="btn" data-go="fs">Start full screen</button></div>
+      ${staff && !K.lock.get() ? `<label class="row lockopt"><input type="checkbox" id="lockme" checked> Lock this device to this screen <span class="muted">(staff only see ${esc(K.$('.topbar .title').textContent)} — an admin can unlock)</span></label>` : ''}`;
     o.onclick = (e) => {
       const g = e.target.closest('[data-go]'); if (!g) return;
       started = true; K.unlockAudio(); K.keepAwake(); ss('kds-started', '1');
+      const lm = o.querySelector('#lockme'); if (lm && lm.checked && ctx) K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim());
       if (g.dataset.go === 'fs') { ss('kds-fs', '1'); document.documentElement.requestFullscreen?.().catch(() => {}); }
       o.remove();
     };

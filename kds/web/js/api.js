@@ -33,15 +33,34 @@
     constructor(cfg) {
       this.mode = 'live';
       this.sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-        auth: { persistSession: true, autoRefreshToken: true },
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: window.localStorage },
         realtime: { params: { eventsPerSecond: 20 } },
       });
       this.user = null; this.role = 'staff';
     }
     async init() {
-      const { data } = await this.sb.auth.getSession();
-      if (data.session) await this._loadProfile(data.session.user);
-      this.sb.auth.onAuthStateChange((_e, session) => { if (!session) { this.user = null; } });
+      // Restore the saved sign-in. If another tab is refreshing it at that moment, or the network is
+      // slow, wait and try again instead of showing the sign-in page.
+      let session = null;
+      const hasSaved = () => { try { return Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k)); } catch (_) { return false; } };
+      for (let i = 0; i < 6; i++) {
+        try { const { data } = await this.sb.auth.getSession(); session = data.session; } catch (e) { console.warn('getSession', e); }
+        if (session || !hasSaved()) break;
+        try { const { data } = await this.sb.auth.refreshSession(); session = data.session; } catch (_) {}
+        if (session) break;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (session) await this._loadProfile(session.user);
+      this.sb.auth.onAuthStateChange((event, s2) => {
+        if (s2) { this._lastSession = s2; return; }
+        if (event === 'SIGNED_OUT' && !this._signingOut && this._lastSession) {
+          // signed out without pressing "Sign out" (e.g. a refresh clash): try once to get the sign-in back
+          const rt = this._lastSession.refresh_token; this._lastSession = null;
+          this.sb.auth.refreshSession({ refresh_token: rt }).then(({ data }) => { if (!data.session) { this.user = null; window.KDS && KDS.boot && KDS.boot(); } }).catch(() => { this.user = null; });
+          return;
+        }
+        this.user = null;
+      });
       return !!this.user;
     }
     async _loadProfile(user) {
@@ -54,7 +73,7 @@
       if (error) throw error;
       await this._loadProfile(data.user);
     }
-    async signOut() { await this.sb.auth.signOut(); this.user = null; }
+    async signOut() { this._signingOut = true; try { await this.sb.auth.signOut(); } finally { this._signingOut = false; this.user = null; } }
     _chk({ data, error }) { if (error) throw new Error(error.message); return data; }
 
     async loadConfig() {
