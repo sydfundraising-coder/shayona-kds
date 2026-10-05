@@ -7,7 +7,7 @@
     window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
-  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, vol: 'high', sidebar: false, others: true, coming: true };
+  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, vol: 'high', alert: null, sidebar: false, others: true, coming: true };
 
   // ------------------------------------------------------------------ dismissed cancelled orders
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem('kds.dismissed') || '[]')); } catch (_) { return new Set(); } };
@@ -75,6 +75,42 @@
     return `<div class="t-head"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}${timerHtml(o.received_at, th)}</div>`;
   }
 
+  let curNew = new Map();     // items that just dropped in on the current screen (NEW tag)
+  const newAtByKey = {};      // kept per screen, so changing layout keeps the NEW tags
+  const isNew = (id) => curNew.has(id);
+
+  // Big flashing banner across the top: which order just came in and what to make.
+  // Stays until tapped (or a few seconds, per screen setting) — for kitchens too loud to hear the chime.
+  function newOrderAlert(ctx, news) {
+    const mode = ctx.p.alert || (ctx.kind === 'station' ? 'tap' : 'off');
+    if (mode === 'off') return;
+    const byOrder = new Map();
+    news.forEach(({ id, n }) => {
+      const it = st.items.find((x) => x.id === id); if (!it) return;
+      const o = st.orders.find((x) => x.id === it.order_id); if (!o) return;
+      if (!byOrder.has(o.id)) byOrder.set(o.id, { o, lines: [] });
+      byOrder.get(o.id).lines.push(`${n}× ${it.item_name}`);
+    });
+    if (!byOrder.size) return;
+    let box = document.getElementById('newalert');
+    if (!box) {
+      box = document.createElement('div'); box.id = 'newalert'; box.className = 'newalert';
+      box.innerHTML = '<div class="na-title">🔔 NEW ORDER</div><div class="na-list"></div><div class="na-tap">Tap to dismiss</div>';
+      box.onclick = () => { box.remove(); document.body.classList.remove('alerting'); };
+      document.body.appendChild(box);
+    }
+    const list = box.querySelector('.na-list');
+    byOrder.forEach(({ o, lines }) => {
+      list.insertAdjacentHTML('afterbegin', `<div class="na-row ${o.is_online ? 'online' : ''}"><b>${esc(ono(o))}</b>${o.is_online ? '<span class="pill badge-online">ONLINE</span>' : ''}<span>${lines.map(esc).join(' · ')}</span></div>`);
+    });
+    while (list.children.length > 6) list.lastElementChild.remove();
+    box.querySelector('.na-title').textContent = list.children.length > 1 ? `🔔 ${list.children.length} NEW ORDERS` : '🔔 NEW ORDER';
+    document.body.classList.add('alerting');
+    box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
+    clearTimeout(box._t);
+    if (mode !== 'tap') box._t = setTimeout(() => { box.remove(); document.body.classList.remove('alerting'); }, (+mode || 15) * 1000);
+  }
+
   // per-screen item model
   function itemModel(it, kind, held) {
     const st0 = K.stationById(it.station_id);
@@ -119,9 +155,9 @@
       : (m.tap.force ? m.rem : it.qty_window - it.qty_front);
     const multi = units > 1;
     const bumpAttrs = (n) => `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="${n}" ${m.tap.force ? 'data-force="1"' : ''}`;
-    return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')}" ${tap ? bumpAttrs(multi ? 'all' : 1) : ''}>
+    return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')} ${isNew(it.id) ? 'is-new' : ''}" ${tap ? bumpAttrs(multi ? 'all' : 1) : ''}>
       <div class="qty${multi ? ' qtap' : ''}" ${multi ? `${bumpAttrs(1)} title="Tap to clear 1"` : ''}><span>${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</span>${multi ? '<em>−1</em>' : ''}</div>
-      <div><div class="iname">${name}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}${m.status ? `<div class="istatus">${m.status}</div>` : ''}</div>
+      <div><div class="iname">${isNew(it.id) ? '<span class="newtag">NEW</span>' : ''}${name}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}${m.status ? `<div class="istatus">${m.status}</div>` : ''}</div>
       <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}${kind === 'station' ? dots(m.doneCount, m.total) : ''}</div>
     </li>`;
   }
@@ -198,7 +234,8 @@
       foot += `<button class="btn menu-btn" data-act="force" data-order="${o.id}" data-stage="front" title="More">⋮</button>`;
     }
     const items = visibleItems(m, kind, ctx.p);
-    return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+    const hasNew = m.items.some((i) => isNew(i.id));
+    return `<div class="ticket ${hasNew ? 'has-new' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
       <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}${!items.length && !(kind === 'front' && m.items.some((i) => i.qty_window < i.qty)) ? '<li class="t-other" style="padding:6px">Nothing ready yet</li>' : ''}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
@@ -247,7 +284,7 @@
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
     const t = ticket(m, kind, ctx);
     const foot = t.match(/<div class="t-foot">([\s\S]*)<\/div><\/div>$/)?.[1] || '';
-    return `<div class="lrow ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
+    return `<div class="lrow ${m.items.some((i) => isNew(i.id)) ? 'has-new' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
       <div class="lhead"><span class="ono">${esc(ono(o))}</span>${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
       <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}</ul>
       <div class="row">${foot}</div></div>`;
@@ -262,12 +299,12 @@
     }));
     if (!groups.size) return empty();
     return [...groups.values()].sort((a, b) => b.total - a.total).map((g) => `
-      <div class="sgroup"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
+      <div class="sgroup ${g.rows.some((r) => isNew(r.it.id)) ? 'has-new' : ''}"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
         <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="all">Bump oldest</button></div>
         <div class="chips">${g.rows.map((r) => {
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
-          return `<div role="button" class="chip ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
-            <span class="c1">${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
+          return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
+            <span class="c1">${isNew(r.it.id) ? '<span class="newtag">NEW</span>' : ''}${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
             <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + packLabel(r.it.pack) : ''}</span>
             ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</div>`;
         }).join('')}</div></div>`).join('');
@@ -354,6 +391,7 @@
     if (kind === 'station' && !station) { location.hash = '#/'; return; }
     const key = kind === 'station' ? 'station:' + station.id : kind;
     const p = K.prefs(key, { ...DEFAULTS, layout: LAYOUTS[kind][0][0] });
+    if (p.alert == null) p.alert = kind === 'station' ? 'tap' : 'off';   // flashing new-order banner: on for kitchen stations
     if (kind === 'front' && p.splitV !== 1) { p.layout = 'columns'; p.splitV = 1; K.savePrefs(key, p); }   // new split view, once
     K.applyTheme(p);
     const title = station ? station.name : kind === 'window' ? 'Order handling window' : 'Front counter';
@@ -417,12 +455,21 @@
         const n = kind === 'station' ? it.qty : kind === 'window' ? it.qty_prep : it.qty_window;
         units.set(it.id, n); if (m.o.is_online) online.add(it.id);
       }));
+      ctx.newAt = ctx.newAt || newAtByKey[ctx.key] || (newAtByKey[ctx.key] = new Map());   // item id → when it dropped in
       if (ctx.units) {
-        let dropped = 0, onl = false;
-        units.forEach((n, id) => { const was = ctx.units.get(id) || 0; if (n > was) { dropped += n - was; if (online.has(id)) onl = true; } });
+        let dropped = 0, onl = false; const news = [];
+        units.forEach((n, id) => {
+          const was = ctx.units.get(id) || 0;
+          if (n > was) { dropped += n - was; if (online.has(id)) onl = true; ctx.newAt.set(id, Date.now()); news.push({ id, n: n - was }); }
+        });
         if (dropped && p.sound !== false) K.beep(onl ? 'online' : 'new', p.vol);
+        if (news.length) newOrderAlert(ctx, news);
       }
       ctx.units = units;
+      // NEW tag lasts 2 minutes, or until the item is bumped off this screen
+      const keepMs = 120e3;
+      ctx.newAt.forEach((t, id) => { if (Date.now() - t > keepMs || !units.has(id)) ctx.newAt.delete(id); });
+      curNew = ctx.newAt;
       const off = K.$('.sound-off');
       if (p.sound !== false && !K.audioOn()) { if (!off) K.$('.topbar .clock')?.insertAdjacentHTML('beforebegin', '<button class="iconbtn sound-off" title="Tap to turn sound on">🔇 Tap for sound</button>'); }
       else if (off) off.remove();
@@ -583,6 +630,7 @@
       <div class="field"><label>Order sorting</label>${seg('sort', [['oldest', 'Oldest first'], ['newest', 'Newest first'], ['online', 'Online first'], ...(ctx.kind === 'window' ? [['ready', 'Ready first']] : [])])}</div>
       <div class="field"><label>Theme</label>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
       <div class="field"><label>Chime when items drop in</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
+      <div class="field"><label>New order alert (flashing banner)</label><div class="row">${seg('alert', [['tap', 'Until tapped'], ['15', '15 seconds'], ['off', 'Off']])}<button class="btn sm" id="alert-test">Test</button></div></div>
       <div class="field"><label>Chime volume</label><div class="row">${seg('vol', [['low', 'Low'], ['med', 'Medium'], ['high', 'Loud']])}<button class="btn sm" id="snd-test">🔔 Test</button></div></div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
@@ -593,6 +641,13 @@
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
       w.querySelector('.body').onclick = (e) => {
+        if (e.target.closest('#alert-test')) {
+          const m0 = (ctx.kind === 'station' ? stationModel(ctx.station.id, p) : ctx.kind === 'window' ? windowModel(p) : frontModel(p))[0];
+          w.remove();
+          if (m0) newOrderAlert({ ...ctx, p: { ...p, alert: p.alert === 'off' ? '15' : p.alert } }, m0.items.slice(0, 3).map((i) => ({ id: i.id, n: i.qty })));
+          else K.toast('No orders on screen to show a test with');
+          return;
+        }
         if (e.target.closest('#snd-test')) { K.unlockAudio(); setTimeout(() => K.beep('new', p.vol), 60); return; }
         if (e.target.closest('#dlock-on')) { K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim()); w.remove(); K.toast('This device is now locked to this screen'); return; }
         if (e.target.closest('#dlock-off')) { w.remove(); K.unlockDevice(); return; }
