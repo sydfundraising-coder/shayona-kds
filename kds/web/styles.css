@@ -540,3 +540,4 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .pboard .num.uc{background:var(--late)!important;border-color:var(--late)!important;color:#fff!important;animation:ucflash 1s ease-in-out infinite}
 .pboard .num.uc small{color:#fff!important}
 @keyframes ucflash{0%,100%{opacity:1}50%{opacity:.55}}
+.btn.bump1{min-height:52px;padding:10px 18px;font-size:1.05em;font-weight:900}

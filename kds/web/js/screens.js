@@ -318,9 +318,10 @@
       const g = groups.get(key); const rem = it.qty - it.qty_prep; g.total += rem; g.rows.push({ o: m.o, it, rem });
     }));
     if (!groups.size) return empty();
+    groups.forEach((g) => g.rows.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at)));   // oldest order first
     return [...groups.values()].sort((a, b) => b.total - a.total).map((g) => `
       <div class="sgroup ${g.rows.some((r) => isNew(r.it.id)) ? 'has-new' : ''}"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
-        <button class="btn sm ok" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="all">Bump oldest</button></div>
+        <button class="btn ok bump1" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="1" title="Push one of this item, oldest order first">Bump 1 · ${esc(ono(g.rows[0].o))}</button></div>
         <div class="chips">${g.rows.map((r) => {
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
           return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
