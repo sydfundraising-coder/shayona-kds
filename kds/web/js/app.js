@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · bump one v19';
+  K.VERSION = '6 Oct 2026 · staff access v20';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -368,12 +368,12 @@
           <a class="tile" href="/menu-board.html" target="_blank" rel="noopener"><b>TV menu board ↗</b><span>Live menu for the café TV</span></a>
           <a class="tile" href="/menu-slideshow.html" target="_blank" rel="noopener"><b>Photo slideshow ↗</b><span>Dish photos, videos &amp; promos</span></a>
         </div>
-        <h2>Manage</h2>
+        ${isAdmin ? `<h2>Manage</h2>
         <div class="tiles">
           <a class="tile" href="#/availability"><b>Item availability</b><span>Quick on/off by station (updates Square)</span></a>
-          ${isAdmin ? `<a class="tile" href="#/reports"><b>Reports</b><span>Prep times by order, item &amp; station</span></a>
-          <a class="tile" href="#/admin"><b>Admin</b><span>Stations, routing, settings, Square sync</span></a>` : ''}
-        </div>
+          <a class="tile" href="#/reports"><b>Reports</b><span>Sales, trends &amp; prep times</span></a>
+          <a class="tile" href="#/admin"><b>Admin</b><span>Stations, routing, settings, Square sync</span></a>
+        </div>` : ''}
         <p class="faint" style="margin-top:28px;font-size:.8em">KDS version: ${K.esc(K.VERSION)}</p>
       </div>${api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : ''}`;
     const so = K.$('#signout'); if (so) so.onclick = async () => { await api.signOut(); location.hash = '#/'; boot(); };
