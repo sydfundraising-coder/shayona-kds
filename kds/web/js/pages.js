@@ -256,6 +256,10 @@
       <div class="field"><label>Push all outstanding orders through to picked up at (every night)</label>
         <input type="time" data-k="auto_close_time" data-type="str" value="${esc(s.auto_close_time || '')}" style="max-width:160px">
         <div class="muted" style="font-size:.85em;margin-top:4px">Checked every 15 minutes between this time and 5 am. Clear the time to turn it off.${s.last_auto_close ? ` Last run: ${esc(new Date(s.last_auto_close.at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))} — ${s.last_auto_close.orders} order(s) closed.` : ''}</div></div>
+      <h2>Pickup</h2>
+      <div class="field"><label>Mark an order "not collected" after (minutes)</label>
+        <input type="number" min="0" max="60" data-k="uncollected_minutes" data-type="num" value="${esc(s.uncollected_minutes ?? 5)}" style="max-width:120px">
+        <div class="muted" style="font-size:.85em;margin-top:4px">Overdue orders move to the top of the front counter with a reminder tone, flash on the pickup board, and ring the customer's phone again if they're tracking it. 0 = off.</div></div>
       <h2>Take away or dine-in</h2>
       <div class="field"><label>Modifier/note words that mean TAKE AWAY (comma separated)</label><input data-k="takeaway_keywords" data-type="list" value="${list('takeaway_keywords')}"></div>
       <div class="field"><label>Words that mean DINE-IN</label><input data-k="plate_keywords" data-type="list" value="${list('plate_keywords')}"></div>

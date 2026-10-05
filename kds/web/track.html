@@ -94,7 +94,7 @@
     const t = (Date.now() - demoStart) / 1000;
     const items = [{ name: 'PAV BHAJI', qty: 2, ready: t > 8 ? 2 : 0, collected: 0 }, { name: 'MANGO LASSI', qty: 1, ready: t > 16 ? 1 : 0, collected: 0 }];
     const ready = items.reduce((a, i) => a + i.ready, 0);
-    return { found: true, order_no: no, status: t > 16 ? 'ready' : 'preparing', total: 3, collected: 0, collectable: ready, items };
+    return { found: true, order_no: no, status: t > 16 ? 'ready' : 'preparing', total: 3, collected: 0, collectable: ready, items, remind_min: 1 };
   }
 
   // ---------------------------------------------------------------- sound, vibration, screen on
@@ -128,7 +128,7 @@
 
   // ---------------------------------------------------------------- state
   const today = () => new Date().toDateString();
-  const save = (no) => { try { localStorage.setItem('track', JSON.stringify({ no, day: today(), seenReady: false, seenPart: 0 })); } catch (_) {} };
+  const save = (no) => { try { localStorage.setItem('track', JSON.stringify({ no, day: today(), ackAt: 0, seenPart: 0 })); } catch (_) {} };
   const load = () => { try { const v = JSON.parse(localStorage.getItem('track') || 'null'); return v && v.day === today() ? v : null; } catch (_) { return null; } };
   const patch = (o) => { const v = load(); if (v) { Object.assign(v, o); try { localStorage.setItem('track', JSON.stringify(v)); } catch (_) {} } };
   let timer = null, notFoundSince = null;
@@ -168,9 +168,9 @@
       ${d.status !== 'completed' && d.status !== 'cancelled' ? `<div class="keep"><span style="font-size:1.4em">📱</span><div><b>Keep this page open</b>Your screen will stay on. Turn your phone's volume up — it will ring and vibrate when your order is ready.</div></div>` : ''}
       <button class="btn ghost" id="chg">Track a different order</button>
       <footer>Updates automatically</footer></div>
-      <div class="ready hidden" id="rdy"><div class="big">🔔</div><div class="t">Your order #${esc(d.order_no || no)} is READY</div><div class="s">Please collect it from the counter</div><button class="btn" id="got">Got it 👍</button></div>`;
+      <div class="ready hidden" id="rdy"><div class="big">🔔</div><div class="t" id="rdy-t">Your order #${esc(d.order_no || no)} is READY</div><div class="s" id="rdy-s">Please collect it from the counter</div><button class="btn" id="got">Got it 👍</button></div>`;
     document.getElementById('chg').onclick = () => { try { localStorage.removeItem('track'); } catch (_) {} askScreen(); };
-    document.getElementById('got').onclick = () => { stopAlarm(); patch({ seenReady: true }); document.getElementById('rdy').classList.add('hidden'); };
+    document.getElementById('got').onclick = () => { stopAlarm(); patch({ ackAt: Date.now() }); document.getElementById('rdy').classList.add('hidden'); };
   }
 
   async function track() {
@@ -191,9 +191,16 @@
     notFoundSince = null;
     trackScreen(st.no, d);
     const can = d.collectable || 0;
-    if (d.status === 'ready' && !st.seenReady) {
-      document.getElementById('rdy').classList.remove('hidden'); startAlarm();
-      notify(`Order #${d.order_no} is ready!`, 'Please collect it from the counter.');
+    // ready: ring until "Got it"; if still not collected, ring again every few minutes
+    const remindMs = Math.max(0, +(d.remind_min ?? 5)) * 60e3;
+    const ringAgain = st.ackAt && remindMs && Date.now() - st.ackAt >= remindMs;
+    if (d.status === 'ready' && (!st.ackAt || ringAgain)) {
+      if (ringAgain) {
+        document.getElementById('rdy-t').textContent = `Your order #${d.order_no} is still waiting`;
+        document.getElementById('rdy-s').textContent = 'Please come and collect it from the counter';
+      }
+      document.getElementById('rdy').classList.remove('hidden'); if (!alarm) startAlarm();
+      notify(ringAgain ? `Order #${d.order_no} is still waiting for you` : `Order #${d.order_no} is ready!`, 'Please collect it from the counter.');
     } else if (d.status !== 'ready' && d.status !== 'completed' && can > (st.seenPart || 0)) {
       patch({ seenPart: can }); tone([1175, 1568], .2, 1); buzz([400, 150, 400]);
       notify(`Part of order #${d.order_no} is ready`, `You can collect ${can} item${can > 1 ? 's' : ''} now.`);

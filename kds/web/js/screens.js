@@ -39,6 +39,25 @@
     return { allReady, total, readyOrDone, collectable, items };
   };
 
+  // ------------------------------------------------------------------ uncollected orders
+  const ucMin = () => Math.max(0, +K.setting('uncollected_minutes', 5) || 0);
+  // when an order (or the part of it that can be collected) became ready
+  function readySince(o) {
+    const pk = K.pickup(o);
+    if (o.status !== 'ready' && !pk.collectable) return null;
+    if (o.status === 'ready' && o.ready_at) return o.ready_at;
+    const ts = pk.items.filter((i) => i.qty_window > i.qty_front && (pk.allReady || !K.isHeld(i))).map((i) => i.window_at || i.prepared_at).filter(Boolean).sort();
+    return ts[0] || o.updated_at;
+  }
+  // ms the order has been waiting for collection beyond the limit (0 = not overdue)
+  function uncollected(o) {
+    const m = ucMin(); if (!m || ['cancelled', 'completed'].includes(o.status)) return 0;
+    const since = readySince(o); if (!since) return 0;
+    const age = Date.now() - new Date(since);
+    return age >= m * 60e3 ? age : 0;
+  }
+  K.readySince = readySince; K.uncollected = uncollected;
+
   // ------------------------------------------------------------------ small renderers
   const ono = (o) => { const n = String(o.order_no ?? o.kds_seq ?? ''); return /^\d+$/.test(n) ? '#' + n : n; };
   const modClass = (m) => /spicy|chilli|hot/i.test(m) ? 'hot' : /jain/i.test(m) ? 'jain' : '';
@@ -235,8 +254,9 @@
     }
     const items = visibleItems(m, kind, ctx.p);
     const hasNew = m.items.some((i) => isNew(i.id));
-    return `<div class="ticket ${hasNew ? 'has-new' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
-      ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
+    const uc = kind === 'front' && uncollected(o);
+    return `<div class="ticket ${hasNew ? 'has-new' : ''} ${uc ? 'uncollected' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+      ${head(o, th)}${uc ? `<div class="uc-badge">⚠ Not collected · ready for <span data-since="${esc(readySince(o))}">${K.mmss(uc)}</span></div>` : ''}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
       <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}${!items.length && !(kind === 'front' && m.items.some((i) => i.qty_window < i.qty)) ? '<li class="t-other" style="padding:6px">Nothing ready yet</li>' : ''}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
       ${kind === 'front' && !cancelled ? frontExtra(o) : ''}
@@ -446,6 +466,13 @@
     }
     if (st.loaded) ctx.seen = ids;
 
+    // front counter: reminder tone the moment an order becomes "not collected"
+    if (kind === 'front' && st.loaded) {
+      const late = new Set(model.filter((m) => uncollected(m.o)).map((m) => m.o.id));
+      if (ctx.ucSeen && p.sound !== false && [...late].some((id) => !ctx.ucSeen.has(id))) K.beep('late', p.vol);
+      ctx.ucSeen = late;
+    }
+
     // chime for every item that drops onto this screen: new items, extra quantity added to an order,
     // or (window / front) units pushed through from the kitchen
     if (st.loaded) {
@@ -497,7 +524,13 @@
       const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
       html = `<div class="cols two" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
         ${pcol('Preparing', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
-        ${col('Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small>', 'ready', model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable)))}</div>`;
+        ${(() => {
+          const rows = model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable));
+          const late = rows.filter((m) => uncollected(m.o)).sort((a, b) => uncollected(b.o) - uncollected(a.o)), rest = rows.filter((m) => !uncollected(m.o));
+          return `<div class="col ready"><h3>Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small><span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">
+            ${late.length ? `<div class="uc-head">⚠ Not collected — ${ucMin()}+ min · call again / buzz <span class="pill badge-cancel">${late.length}</span></div>${late.map((m) => ticket(m, kind, ctx)).join('')}${rest.length ? '<div class="uc-sep">Ready</div>' : ''}` : ''}
+            ${rest.map((m) => ticket(m, kind, ctx)).join('') || (late.length ? '' : '<div class="muted" style="padding:10px">—</div>')}</div></div>`;
+        })()}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
     } else if (p.layout === 'summary' && kind === 'station') {
@@ -741,8 +774,9 @@
     prep.innerHTML = live.filter((o) => !serving.includes(o)).map((o) => `<div class="num">${num(o)}</div>`).join('');
     ready.innerHTML = serving.map((o) => {
       const k = pk.get(o.id);
-      if (o.status === 'ready') return `<div class="num all ${Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${num(o)}</div>`;
-      return `<div class="num part">${num(o)}<small>${k.readyOrDone} of ${k.total} ready</small></div>`;
+      const uc = uncollected(o);
+      if (o.status === 'ready') return `<div class="num all ${uc ? 'uc' : Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${num(o)}${uc ? '<small>Please collect</small>' : ''}</div>`;
+      return `<div class="num part ${uc ? 'uc' : ''}">${num(o)}<small>${uc ? 'Please collect · ' : ''}${k.readyOrDone} of ${k.total} ready</small></div>`;
     }).join('');
     const ids = new Set(serving.map((o) => o.id + ':' + pk.get(o.id).readyOrDone));
     if (boardSeen && [...ids].some((id) => !boardSeen.has(id))) K.beep('new');
