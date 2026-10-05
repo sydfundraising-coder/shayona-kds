@@ -507,3 +507,4 @@ table.t tr:hover td{background:var(--card2)}
 .banner{background:color-mix(in srgb,var(--late) 10%,var(--panel));border-bottom:1px solid color-mix(in srgb,var(--late) 35%,transparent)}
 .mrow{background:var(--card2);border-width:1px}
 .mrow.online{box-shadow:inset 5px 0 0 var(--online);border-left-width:1px}
+.sound-off{color:var(--warn);border-color:var(--warn)!important;font-weight:800}

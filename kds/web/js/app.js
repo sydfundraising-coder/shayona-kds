@@ -100,16 +100,28 @@
 
   // ------------------------------------------------------------------ sound + screen wake
   let actx = null;
-  K.unlockAudio = () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (_) {} };
-  K.beep = function (kind = 'new') {
+  K.unlockAudio = () => {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume().then(() => K.$$('.sound-off').forEach((x) => x.remove())); } catch (_) {}
+  };
+  K.audioOn = () => !!actx && actx.state === 'running';
+  // any tap anywhere turns sound on (browsers only allow sound after a tap)
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => K.unlockAudio(), { capture: true, passive: true }));
+  // clear kitchen bell: two notes with a soft ring-out; vol = low / med / high
+  K.beep = function (kind = 'new', vol = 'high') {
     if (!actx) return;
-    const seq = kind === 'online' ? [880, 1175, 1568] : kind === 'late' ? [440, 330] : [988, 1319];
+    const level = { low: 0.25, med: 0.55, high: 1 }[vol] ?? 1;
+    const seq = kind === 'online' ? [1047, 1319, 1568] : kind === 'late' ? [440, 330] : [1175, 1568];
+    const master = actx.createGain(); master.gain.value = level;
+    const comp = actx.createDynamicsCompressor ? actx.createDynamicsCompressor() : null;
+    if (comp) { master.connect(comp); comp.connect(actx.destination); } else master.connect(actx.destination);
     seq.forEach((f, i) => {
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(actx.destination);
-      const t = actx.currentTime + i * 0.16;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-      o.start(t); o.stop(t + 0.16);
+      const t = actx.currentTime + i * 0.2;
+      [[f, 'sine', 0.9], [f * 2, 'triangle', 0.25]].forEach(([freq, type, amp]) => {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = type; o.frequency.value = freq; o.connect(g); g.connect(master);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+        o.start(t); o.stop(t + 0.6);
+      });
     });
   };
   let wakeLock = null;
@@ -122,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · stay signed in v11';
+  K.VERSION = '5 Oct 2026 · item chime v12';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {

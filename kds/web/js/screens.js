@@ -7,7 +7,7 @@
     window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
-  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true, coming: true };
+  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, vol: 'high', sidebar: false, others: true, coming: true };
 
   // ------------------------------------------------------------------ dismissed cancelled orders
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem('kds.dismissed') || '[]')); } catch (_) { return new Set(); } };
@@ -404,10 +404,29 @@
     if (ctx.seen && st.loaded) {
       const fresh = model.filter((m) => !ctx.seen.has(m.o.id) && m.o.status !== 'cancelled');
       fresh.forEach((m) => ctx.fresh.add(m.o.id));
-      if (fresh.length && p.sound) K.beep(fresh.some((m) => m.o.is_online) ? 'online' : 'new');
-      if (model.some((m) => m.o.status === 'cancelled' && !ctx.seen.has(m.o.id)) && p.sound) K.beep('late');
+      if (model.some((m) => m.o.status === 'cancelled' && !ctx.seen.has(m.o.id)) && p.sound) K.beep('late', p.vol);
     }
     if (st.loaded) ctx.seen = ids;
+
+    // chime for every item that drops onto this screen: new items, extra quantity added to an order,
+    // or (window / front) units pushed through from the kitchen
+    if (st.loaded) {
+      const units = new Map(), online = new Set();
+      model.forEach((m) => m.items.forEach((it) => {
+        if (m.o.status === 'cancelled') return;
+        const n = kind === 'station' ? it.qty : kind === 'window' ? it.qty_prep : it.qty_window;
+        units.set(it.id, n); if (m.o.is_online) online.add(it.id);
+      }));
+      if (ctx.units) {
+        let dropped = 0, onl = false;
+        units.forEach((n, id) => { const was = ctx.units.get(id) || 0; if (n > was) { dropped += n - was; if (online.has(id)) onl = true; } });
+        if (dropped && p.sound !== false) K.beep(onl ? 'online' : 'new', p.vol);
+      }
+      ctx.units = units;
+      const off = K.$('.sound-off');
+      if (p.sound !== false && !K.audioOn()) { if (!off) K.$('.topbar .clock')?.insertAdjacentHTML('beforebegin', '<button class="iconbtn sound-off" title="Tap to turn sound on">🔇 Tap for sound</button>'); }
+      else if (off) off.remove();
+    }
 
     // stats
     const units = model.reduce((a, m) => a + m.items.reduce((b, it) => b + Math.max(0,
@@ -563,7 +582,8 @@
       <div class="field"><label>Text size</label>${seg('fs', [['0.9', 'A−'], ['1', 'A'], ['1.15', 'A+'], ['1.3', 'A++']])}</div>
       <div class="field"><label>Order sorting</label>${seg('sort', [['oldest', 'Oldest first'], ['newest', 'Newest first'], ['online', 'Online first'], ...(ctx.kind === 'window' ? [['ready', 'Ready first']] : [])])}</div>
       <div class="field"><label>Theme</label>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
-      <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
+      <div class="field"><label>Chime when items drop in</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
+      <div class="field"><label>Chime volume</label><div class="row">${seg('vol', [['low', 'Low'], ['med', 'Medium'], ['high', 'Loud']])}<button class="btn sm" id="snd-test">🔔 Test</button></div></div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
       <div class="field"><label>This device</label><div class="row">${K.lock.get() ? `<span>🔒 Locked to <b>${esc(K.lock.get().label || '')}</b></span><button class="btn sm" id="dlock-off">Unlock (admin)</button>` : `<span class="muted">Not locked</span><button class="btn sm" id="dlock-on">🔒 Lock to this screen</button>`}</div>
@@ -573,6 +593,7 @@
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
       w.querySelector('.body').onclick = (e) => {
+        if (e.target.closest('#snd-test')) { K.unlockAudio(); setTimeout(() => K.beep('new', p.vol), 60); return; }
         if (e.target.closest('#dlock-on')) { K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim()); w.remove(); K.toast('This device is now locked to this screen'); return; }
         if (e.target.closest('#dlock-off')) { w.remove(); K.unlockDevice(); return; }
         const b = e.target.closest('[data-v]'); if (!b) return;
@@ -581,6 +602,7 @@
         p[name] = v; K.savePrefs(ctx.key, p);
         b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
         K.applyTheme(p); drawBoard(ctx);
+        if (name === 'vol') { K.unlockAudio(); setTimeout(() => K.beep('new', v), 60); }
       };
     });
   }
