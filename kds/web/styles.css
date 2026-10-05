@@ -397,3 +397,12 @@ table.t tr:hover td{background:var(--card2)}
 .insights li::marker{color:var(--accent)}
 .covbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:.88em;color:var(--muted);margin:10px 0 0}
 .prog{height:8px;border-radius:4px;background:var(--card2);overflow:hidden;flex:1;min-width:120px}.prog>i{display:block;height:100%;background:var(--s1);width:0}
+/* window: still in the kitchen strip */
+.coming{margin:10px 12px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:12px;background:var(--panel)}
+.coming-h{font-weight:800;font-size:.9em;color:var(--muted);display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.coming-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.cchip{flex:0 0 auto;min-width:150px;max-width:240px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 9px;opacity:.85;font-size:.85em}
+.cchip.online{border-left:4px solid var(--online)}
+.cc1{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:1.1em;margin-bottom:2px}
+.cc2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.coming-note{color:var(--muted);font-size:.85em;margin-top:6px}

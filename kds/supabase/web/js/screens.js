@@ -7,7 +7,7 @@
     window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
-  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true };
+  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true, coming: true };
 
   // ------------------------------------------------------------------ dismissed cancelled orders
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem('kds.dismissed') || '[]')); } catch (_) { return new Set(); } };
@@ -200,17 +200,48 @@
     const items = visibleItems(m, kind, ctx.p);
     return `<div class="ticket ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
-      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other" style="padding:6px">Nothing ready yet</li>'}</ul>
+      <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}${!items.length && !(kind === 'front' && m.items.some((i) => i.qty_window < i.qty)) ? '<li class="t-other" style="padding:6px">Nothing ready yet</li>' : ''}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
       ${kind === 'front' && !cancelled ? frontExtra(o) : ''}
       <div class="t-foot">${foot}</div></div>`;
   }
   function frontExtra(o) {
     const pk = K.pickup(o);
-    if (pk.allReady) return '';
-    const todo = pk.items.filter((i) => i.qty_window < i.qty).map((i) => `${esc(i.item_name)} ×${i.qty - i.qty_window}`);
-    if (!todo.length && !pk.readyOrDone) return '';
-    return `<div class="t-other">${pk.readyOrDone ? `<b style="color:var(--warn)">${pk.readyOrDone} of ${pk.total} ready</b> · ` : ''}${todo.length ? `Still to come: ${todo.join(', ')}` : ''}</div>`;
+    if (pk.allReady || !pk.readyOrDone) return '';
+    return `<div class="t-other"><b style="color:var(--warn)">${pk.readyOrDone} of ${pk.total} ready</b></div>`;
+  }
+  // front counter "Preparing" side: compact card per order so many orders fit, names still large
+  function prepCard(m, ctx) {
+    const { o } = m, cancelled = o.status === 'cancelled', ageCls = K.ageClass(o.received_at, ctx.th);
+    const its = m.items;
+    const done = its.reduce((a, i) => a + i.qty_front, 0), total = its.reduce((a, i) => a + i.qty, 0);
+    const line = (i) => {
+      const ready = i.qty_window - i.qty_front, rem = i.qty - i.qty_front;
+      if (rem <= 0) return '';
+      const st = ready > 0 && ready >= rem ? '<span class="pc-ok">✓ ready</span>' : ready > 0 ? `<span class="pc-ok">✓ ${ready} ready</span> · ${whereIs(i)}` : whereIs(i);
+      return `<div class="pc-it"><span class="pc-q">${rem}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}<span class="pc-s">${st}</span></span></div>`;
+    };
+    return `<div class="pcard ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+      <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}
+        <button class="iconbtn sm" data-act="${cancelled ? 'dismiss' : 'force'}" data-order="${o.id}" data-stage="front" title="${cancelled ? 'Dismiss' : 'More'}">${cancelled ? '✕' : '⋮'}</button></div>
+      <div class="pc-b">${badges(o)}</div>
+      ${its.map(line).join('')}
+      ${done ? `<div class="pc-s" style="margin-top:4px">${done} of ${total} collected</div>` : ''}</div>`;
+  }
+  // where an item is when it isn't at the front yet
+  function whereIs(it) {
+    const stn = esc(K.stationById(it.station_id)?.name || 'kitchen');
+    if (!it.station_id && !it.no_prep) return 'No station set';
+    if (it.qty_prep > it.qty_window) return 'At window — being finished';
+    if (it.skip_window) return `Making at ${stn} · comes straight here`;
+    return it.no_prep ? 'At window' : `Making at ${stn}${it.qty > 1 ? ` (${it.qty_prep}/${it.qty} made)` : ''}`;
+  }
+  // front counter: items still to come, same size as ready items (faded, not tappable)
+  function pendingRows(o, items) {
+    return items.filter((it) => it.qty_window < it.qty).map((it) => `<li class="item waiting pending">
+      <div class="qty"><span>${it.qty - it.qty_window}</span></div>
+      <div><div class="iname">${esc(it.item_name)}${it.variation_name ? ` <span class="ivar">· ${esc(it.variation_name)}</span>` : ''}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}<div class="istatus">${whereIs(it)}</div></div>
+      <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}</div></li>`).join('');
   }
   function listRow(m, kind, ctx) {
     const { o } = m, ageCls = K.ageClass(o.received_at, ctx.th), cancelled = o.status === 'cancelled';
@@ -218,7 +249,7 @@
     const foot = t.match(/<div class="t-foot">([\s\S]*)<\/div><\/div>$/)?.[1] || '';
     return `<div class="lrow ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
       <div class="lhead"><span class="ono">${esc(ono(o))}</span>${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
-      <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('') || '<li class="t-other">Nothing ready yet</li>'}</ul>
+      <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}</ul>
       <div class="row">${foot}</div></div>`;
   }
   function summaryView(model, ctx) {
@@ -262,7 +293,7 @@
     });
     const ready = [...groups.values()].filter((g) => g.nReady > 0);
     const cookingOnly = [...groups.values()].filter((g) => !g.nReady && g.nCooking);
-    const comingLine = cookingOnly.length ? `<div class="mcoming muted">Still cooking: ${cookingOnly.map((g) => `${esc(g.name)} ×${g.nCooking}`).join(' · ')}</div>` : '';
+    const comingLine = '';   // shown in the "Still in the kitchen" strip at the top instead
     if (!ready.length) return empty(cookingOnly.length ? 'Nothing ready yet' : 'All caught up') + comingLine;
     groups.clear(); ready.forEach((g) => groups.set(g.name + '|' + (g.variation || ''), g));
     const byAge = (x, y) => new Date(x.o.received_at) - new Date(y.o.received_at);
@@ -323,6 +354,7 @@
     if (kind === 'station' && !station) { location.hash = '#/'; return; }
     const key = kind === 'station' ? 'station:' + station.id : kind;
     const p = K.prefs(key, { ...DEFAULTS, layout: LAYOUTS[kind][0][0] });
+    if (kind === 'front' && p.splitV !== 1) { p.layout = 'columns'; p.splitV = 1; K.savePrefs(key, p); }   // new split view, once
     K.applyTheme(p);
     const title = station ? station.name : kind === 'window' ? 'Order handling window' : 'Front counter';
     const colour = station ? station.colour : kind === 'window' ? 'var(--ok)' : 'var(--info)';
@@ -395,9 +427,10 @@
     let html;
     if (!st.loaded) html = '<div class="board"><div class="empty"><div class="big">⏳</div>Loading orders…</div></div>';
     else if (kind === 'front' && p.layout === 'columns') {
+      const pcol = (title, rows) => `<div class="col prep"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="pgrid">${rows.map((m) => prepCard(m, ctx)).join('') || '<div class="muted" style="padding:10px">Nothing in the kitchen</div>'}</div></div>`;
       const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
       html = `<div class="cols two" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
-        ${col('Preparing', '', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
+        ${pcol('Preparing', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
         ${col('Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small>', 'ready', model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable)))}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
@@ -408,9 +441,34 @@
     } else {
       html = `<div class="board ${p.layout === 'rail' ? 'rail' : 'tickets'} size-${p.size}">${model.map((m) => ticket(m, kind, ctx)).join('') || empty()}</div>`;
     }
+    if (kind === 'window' && st.loaded) html = comingStrip(ctx, model.length) + html;
     const side = p.sidebar && kind !== 'front';
     K.$('#wrap').className = side ? 'with-side' : '';
     K.$('#wrap').innerHTML = html + (side ? `<aside class="sidebar">${allDay(model, kind)}</aside>` : '');
+  }
+
+  // Window: orders still being made at the stations. They move up into the main area as soon as a
+  // station taps items done, so the window always sees what's coming (and why the screen may be empty).
+  function comingStrip(ctx, shown) {
+    const list = [];
+    let blocked = 0;
+    for (const o of st.orders) {
+      if (['completed', 'ready', 'cancelled'].includes(o.status)) continue;
+      // every item that hasn't reached the window yet (and isn't ready at the front already)
+      const its = liveItems(o).filter((i) => i.qty_prep < i.qty && i.qty_window < i.qty);
+      if (its.length) list.push({ o, its });
+      blocked += its.filter((i) => i.skip_window || (!i.station_id && !i.no_prep)).length;
+    }
+    list.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at));
+    if (!list.length) return '';
+    const units = list.reduce((a, x) => a + x.its.reduce((b, i) => b + i.qty - i.qty_prep, 0), 0);
+    const tag = (i) => i.skip_window ? '<span class="ctag">skips window</span>' : (!i.station_id && !i.no_prep) ? '<span class="ctag">no station</span>' : `<span class="muted">· ${esc(K.stationById(i.station_id)?.name || 'kitchen')}</span>`;
+    const note = (blocked ? `<div class="coming-note warn">⚠ Items tagged <b>skips window</b> or <b>no station</b> will not come to this screen — change them in <b>Admin → Item routing</b>.</div>` : '')
+      + (!shown ? `<div class="coming-note">Items appear here as soon as a station taps them <b>done</b> on its KDS screen.</div>` : '');
+    if (ctx.p.coming === false || ctx.p.coming === 'false') return note ? `<div class="coming">${note}</div>` : '';
+    return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
+      <div class="coming-row">${list.map(({ o, its }) => `<div class="cchip ${o.is_online ? 'online' : ''}"><div class="cc1"><b>${esc(ono(o))}</b>${timerHtml(o.received_at, ctx.th)}</div>
+        ${its.map((i) => `<div class="cc2">${i.qty - i.qty_prep}× ${esc(i.item_name)} ${tag(i)}</div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
   function routeOf(c) {
@@ -498,6 +556,7 @@
       <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
+      ${ctx.kind === 'window' ? `<div class="field"><label>"Still in the kitchen" strip (orders not ready yet)</label>${seg('coming', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {

@@ -122,6 +122,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
+  K.VERSION = '5 Oct 2026 · front split v7';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -286,7 +287,7 @@
           <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
-        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
+        ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> <a href="#/admin?tab=health">Run the health check →</a> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
         <div class="tiles">
           ${s.map((x) => `<a class="tile" style="--c:${K.esc(x.colour)}" href="#/station/${x.id}"><b>${K.esc(x.name)}</b><span>Shows only items made at this station</span></a>`).join('') || '<div class="muted">No stations yet — add them in Admin.</div>'}
@@ -309,6 +310,7 @@
           ${isAdmin ? `<a class="tile" href="#/reports"><b>Reports</b><span>Prep times by order, item &amp; station</span></a>
           <a class="tile" href="#/admin"><b>Admin</b><span>Stations, routing, settings, Square sync</span></a>` : ''}
         </div>
+        <p class="faint" style="margin-top:28px;font-size:.8em">KDS version: ${K.esc(K.VERSION)}</p>
       </div>${api.mode === 'demo' ? '<div class="demo-flag">DEMO</div>' : ''}`;
     const so = K.$('#signout'); if (so) so.onclick = async () => { await api.signOut(); location.hash = '#/'; boot(); };
   };

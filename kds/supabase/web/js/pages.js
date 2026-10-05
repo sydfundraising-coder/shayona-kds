@@ -61,12 +61,57 @@
     if (api.role !== 'admin') { app().innerHTML = pageTop('Admin') + '<div class="page"><h2>Admins only</h2></div>'; return; }
     K.applyTheme(K.prefs('global', { theme: 'dark' }));
     const tab = r.q.get('tab') || 'stations';
-    const tabs = [['stations', 'Stations'], ['routing', 'Item routing'], ['settings', 'Settings'], ['square', 'Square & data'], ['links', 'Screen links']];
+    const tabs = [['health', '✚ Health check'], ['stations', 'Stations'], ['routing', 'Item routing'], ['settings', 'Settings'], ['square', 'Square & data'], ['links', 'Screen links']];
     app().innerHTML = pageTop('Admin') + `<div class="page"><div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="tab"></div></div>${demoFlag()}`;
     K.$('.tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) location.hash = '#/admin?tab=' + b.dataset.tab; };
-    ({ stations: tabStations, routing: tabRouting, settings: tabSettings, square: tabSquare, links: tabLinks })[tab]();
+    ({ health: tabHealth, stations: tabStations, routing: tabRouting, settings: tabSettings, square: tabSquare, links: tabLinks })[tab]();
   };
   K.routes.admin.static = true;
+
+  // ------------------------------------------------------------------ health check: why aren't orders showing?
+  function tabHealth() {
+    if (!st.loaded) { K.$('#tab').innerHTML = '<div class="muted">Loading orders…</div>'; setTimeout(() => { if (K.$('#tab') && /tab=health|#\/admin$/.test(location.hash)) tabHealth(); }, 1000); return; }
+    K.pageRefresh = tabHealth;                       // re-check when routing changes elsewhere
+    const stations = st.cfg.stations.filter((x) => x.active);
+    const cat = st.cfg.catalog.filter((c) => !c.is_deleted);
+    const onMenu = cat.filter((c) => !('stock_qty' in c) || (c.stock_qty != null && Number(c.stock_qty) >= 0));
+    const catOf = (c) => st.cfg.categories.find((k) => k.square_id === c.category_id);
+    const routed = onMenu.filter((c) => K.routeOf(c));
+    const noPrep = onMenu.filter((c) => !K.routeOf(c) && (c.no_prep === true || (c.no_prep == null && catOf(c)?.no_prep)));
+    const unassigned = onMenu.filter((c) => !K.routeOf(c) && !noPrep.includes(c));
+    const skipW = routed.filter((c) => (c.skip_window != null ? c.skip_window : !!catOf(c)?.skip_window));
+    const usedCats = [...new Set(onMenu.map((c) => c.category_id))].map((id) => st.cfg.categories.find((k) => k.square_id === id)).filter(Boolean);
+    const catsRouted = usedCats.filter((k) => k.station_id || k.no_prep);
+    const deadStation = (id) => id && !st.cfg.stations.some((x) => x.id === id && x.active);
+    const catsDead = usedCats.filter((k) => deadStation(k.station_id));
+    const open = st.orders.filter((o) => !['completed', 'cancelled'].includes(o.status));
+    const its = st.items.filter((i) => !i.removed && open.some((o) => o.id === i.order_id));
+    const atStation = its.filter((i) => i.station_id && i.qty_prep < i.qty);
+    const atWindow = its.filter((i) => i.qty_prep > i.qty_window && !i.skip_window);
+    const noStation = its.filter((i) => !i.station_id);
+    const itSkip = its.filter((i) => i.skip_window);
+    const last = [...st.orders].sort((a, b) => new Date(b.received_at) - new Date(a.received_at))[0];
+    const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
+    const row = (ok, title, detail, fix) => `<div class="hc ${ok === true ? 'ok' : ok === 'warn' ? 'warn' : 'bad'}"><div class="hc-i">${ok === true ? '✓' : ok === 'warn' ? '!' : '✗'}</div><div><b>${title}</b><div class="muted">${detail}</div>${fix ? `<div class="hc-fix">${fix}</div>` : ''}</div></div>`;
+    K.$('#tab').innerHTML = `<p class="muted">A quick check of everything that decides which screen an order appears on. Fix the red items first.</p>
+      ${row(true, 'KDS version', esc(K.VERSION || 'unknown') + ` · ${api.mode === 'demo' ? 'DEMO mode' : 'live'}`)}
+      ${row(st.connected ? true : 'warn', 'Live connection', st.connected ? 'Connected — screens update instantly.' : 'Not connected right now — screens still refresh every 20 seconds.')}
+      ${row(stations.length ? true : false, `${stations.length} active kitchen station(s)`, stations.map((x) => esc(x.name)).join(', ') || 'None', stations.length ? '' : '<a href="#/admin?tab=stations">Add stations →</a>')}
+      ${row(catsDead.length ? false : true, 'Categories point to existing stations', catsDead.length ? `${catsDead.length} categor${catsDead.length > 1 ? 'ies point' : 'y points'} to a station that was deleted or switched off: ${catsDead.map((k) => esc(k.name)).join(', ')}` : 'Yes')}
+      ${row(pct(catsRouted.length, usedCats.length) >= 60 ? true : false, `${catsRouted.length} of ${usedCats.length} menu categories have a station (or No prep)`,
+        usedCats.filter((k) => !k.station_id && !k.no_prep).map((k) => esc(k.name)).slice(0, 20).join(', ') || 'All set',
+        catsRouted.length < usedCats.length ? '<a href="#/admin?tab=routing">Set a station for each category →</a> Items in a category with no station skip the kitchen AND the window and go straight to the front counter.' : '')}
+      ${row(pct(routed.length, onMenu.length) >= 50 ? (unassigned.length ? 'warn' : true) : false, `${routed.length} of ${onMenu.length} menu items go to a kitchen station`,
+        `${noPrep.length} no prep (straight to window) · <b>${unassigned.length} not assigned</b> (straight to front counter) · ${skipW.length} skip the window`,
+        unassigned.length ? '<a href="#/admin?tab=routing">Open Item routing →</a> and use the filter “Not assigned”.' : '')}
+      ${row(skipW.length > routed.length / 2 && routed.length ? false : true, 'Skip window setting', skipW.length ? `${skipW.length} item(s) go from the station straight to the front: ${skipW.slice(0, 12).map((c) => esc(c.item_name)).join(', ')}${skipW.length > 12 ? '…' : ''}` : 'No items skip the window.', skipW.length ? '<a href="#/admin?tab=routing">Check “Skip window”</a> on the categories and items.' : '')}
+      <h2>Orders open right now</h2>
+      ${row(last ? true : 'warn', 'Orders arriving from Square', last ? `${open.length} open · last order received ${esc(new Date(last.received_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }))}` : 'No orders in the last 36 hours.')}
+      ${row(open.length && noStation.length === its.length ? false : noStation.length ? 'warn' : true, `${noStation.length} of ${its.length} items on open orders came in with no station`,
+        noStation.length ? 'These were routed before a station was set, so they went straight to the front counter.' : 'All open items have a station (or are No prep).',
+        noStation.length ? 'After fixing routing above, run <b>013_reapply_routing_open_orders.sql</b> in Supabase → SQL Editor to move today’s unstarted items back to their stations.' : '')}
+      ${row(true, 'Where open items are now', `${atStation.length} at kitchen stations · ${atWindow.length} at the order window · ${itSkip.length} set to skip the window`)}`;
+  }
   const refreshAdmin = async () => { await K.loadConfig(); K.render(); };
 
   function tabStations() {
@@ -132,17 +177,23 @@
         <td><label class="row"><input type="checkbox" data-skipw ${c.skip_window ? 'checked' : ''}> Skip window</label></td></tr>`).join('')}
       </tbody></table></div>
       <h2>Item overrides</h2>
-      <div class="row" style="margin-bottom:8px"><input id="iq" placeholder="Search items…" class="grow"><select id="if"><option value="">All items</option><option value="unrouted">Not assigned</option><option value="over">Overridden only</option></select></div>
-      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Goes to</th><th>Override</th><th>Hold until complete</th><th>Order window</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
+      <div class="row" style="margin-bottom:8px"><input id="iq" placeholder="Search items…" class="grow"><select id="if"><option value="">All items</option><option value="unrouted">Not assigned</option><option value="over">Overridden only</option><option value="skipw">Skips window</option><option value="window">Goes to window</option></select></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Route</th><th>Override</th><th>Hold until complete</th><th>Order window</th></tr></thead><tbody id="ibody"></tbody></table></div>`;
     const drawItems = () => {
       const q = K.$('#iq').value.toLowerCase(), f = K.$('#if').value;
       let rows = [...byItem.values()];
       if (q) rows = rows.filter((c) => c.item_name.toLowerCase().includes(q));
       if (f === 'unrouted') rows = rows.filter((c) => !K.routeOf(c) && !isNoPrep(c));
-      if (f === 'over') rows = rows.filter((c) => c.station_id || c.no_prep != null);
+      if (f === 'over') rows = rows.filter((c) => c.station_id || c.no_prep != null || c.skip_window != null || c.hold != null);
+      if (f === 'skipw') rows = rows.filter((c) => K.routeOf(c) && !isNoPrep(c) && (c.skip_window != null ? c.skip_window : catSkip(c)));
+      if (f === 'window') rows = rows.filter((c) => isNoPrep(c) || (K.routeOf(c) && !(c.skip_window != null ? c.skip_window : catSkip(c))));
       K.$('#ibody').innerHTML = rows.map((c) => {
         const r = K.routeOf(c), np = isNoPrep(c);
-        const goes = np ? '<span class="pill badge-walkin">No prep</span>' : r ? `<span class="pill" style="background:${esc(K.stationById(r)?.colour)};color:#fff">${esc(K.stationById(r)?.name)}</span>` : '<span class="pill badge-cancel">Not assigned</span>';
+        const sw = c.skip_window != null ? c.skip_window : catSkip(c);
+        const arrow = '<span class="muted"> → </span>';
+        const goes = np ? `<span class="pill badge-walkin">No prep</span>${arrow}<span class="pill badge-online">Window</span>${arrow}Front`
+          : r ? `<span class="pill" style="background:${esc(K.stationById(r)?.colour)};color:#fff">${esc(K.stationById(r)?.name)}</span>${arrow}${sw ? `<span class="pill badge-cancel" title="${c.skip_window != null ? 'Item setting' : 'Category setting'}">skips window${c.skip_window != null ? '' : ' (category)'}</span>` : '<span class="pill badge-online">Window</span>'}${arrow}Front`
+          : '<span class="pill badge-cancel">Not assigned</span><span class="muted"> → straight to Front</span>';
         const val = c.no_prep === true ? '__noprep' : c.station_id || (c.no_prep === false ? '' : '__follow');
         return `<tr data-item="${esc(c.item_id)}"><td><b>${esc(c.item_name)}</b></td><td class="muted">${esc(c.category_name || '')}</td><td>${goes}</td><td>${stationSelect(val, c.no_prep === true, true)}</td>
           <td><select data-ihold><option value="" ${c.hold == null ? 'selected' : ''}>Same as category</option><option value="1" ${c.hold === true ? 'selected' : ''}>Hold</option><option value="0" ${c.hold === false ? 'selected' : ''}>Don't hold</option></select></td>
@@ -157,6 +208,10 @@
       if (sw) {
         const tr = sw.closest('tr');
         try {
+          if (sw.matches('[data-skipw]') && sw.checked) {
+            const cat = cats.find((k) => k.square_id === tr.dataset.cat), n = items.filter((i) => i.category_id === tr.dataset.cat).length;
+            if (!(await K.confirm(`Skip the window for ALL ${n} items in ${esc(cat.name)}?`, 'Every item in this category will go from the station straight to the front counter. To skip only a few items, leave this off and set "Order window → Skip window" on those items in the list below.', 'Skip window for all'))) { sw.checked = false; return; }
+          }
           if (sw.matches('[data-skipw]')) { await api.setCategorySkipWindow(tr.dataset.cat, sw.checked); cats.find((k) => k.square_id === tr.dataset.cat).skip_window = sw.checked; drawItems(); }
           else { const v = sw.value === '' ? null : sw.value === '1'; await api.setItemSkipWindow(tr.dataset.item, v); st.cfg.catalog.filter((c) => c.item_id === tr.dataset.item).forEach((c) => (c.skip_window = v)); }
           K.toast('Saved — applies to orders on screen now and new orders');
@@ -327,6 +382,7 @@
       const sales = R.tab === 'sales';
       K.$('#kfil').style.display = sales ? 'none' : ''; K.$('#csv').style.display = sales ? 'none' : ''; K.$('#rfoot').style.display = sales ? 'none' : '';
       if (K.$('#rf').value > K.$('#rt').value) K.$('#rt').value = K.$('#rf').value;
+      if (sales && !K.renderSales) { K.$('#rout').innerHTML = '<div class="banner">The new report files (js/charts.js and js/reports-sales.js) are missing on the website — upload the whole web folder again.</div>'; return; }
       if (sales) { R.table = null; return K.renderSales(K.$('#rout'), K.$('#rf').value, K.$('#rt').value); }
       const key = K.$('#rf').value + '|' + K.$('#rt').value;
       if (R.loaded === key) return draw();

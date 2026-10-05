@@ -7,7 +7,7 @@
     window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
-  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true };
+  const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, sidebar: false, others: true, coming: true };
 
   // ------------------------------------------------------------------ dismissed cancelled orders
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem('kds.dismissed') || '[]')); } catch (_) { return new Set(); } };
@@ -262,7 +262,7 @@
     });
     const ready = [...groups.values()].filter((g) => g.nReady > 0);
     const cookingOnly = [...groups.values()].filter((g) => !g.nReady && g.nCooking);
-    const comingLine = cookingOnly.length ? `<div class="mcoming muted">Still cooking: ${cookingOnly.map((g) => `${esc(g.name)} ×${g.nCooking}`).join(' · ')}</div>` : '';
+    const comingLine = '';   // shown in the "Still in the kitchen" strip at the top instead
     if (!ready.length) return empty(cookingOnly.length ? 'Nothing ready yet' : 'All caught up') + comingLine;
     groups.clear(); ready.forEach((g) => groups.set(g.name + '|' + (g.variation || ''), g));
     const byAge = (x, y) => new Date(x.o.received_at) - new Date(y.o.received_at);
@@ -408,9 +408,29 @@
     } else {
       html = `<div class="board ${p.layout === 'rail' ? 'rail' : 'tickets'} size-${p.size}">${model.map((m) => ticket(m, kind, ctx)).join('') || empty()}</div>`;
     }
+    if (kind === 'window' && st.loaded) html = comingStrip(ctx, model.length) + html;
     const side = p.sidebar && kind !== 'front';
     K.$('#wrap').className = side ? 'with-side' : '';
     K.$('#wrap').innerHTML = html + (side ? `<aside class="sidebar">${allDay(model, kind)}</aside>` : '');
+  }
+
+  // Window: orders still being made at the stations. They move up into the main area as soon as a
+  // station taps items done, so the window always sees what's coming (and why the screen may be empty).
+  function comingStrip(ctx, shown) {
+    const list = [];
+    for (const o of st.orders) {
+      if (['completed', 'ready', 'cancelled'].includes(o.status)) continue;
+      const its = liveItems(o).filter((i) => (i.station_id || i.no_prep) && !i.skip_window && i.qty_prep < i.qty);
+      if (its.length) list.push({ o, its });
+    }
+    list.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at));
+    if (!list.length) return '';
+    const units = list.reduce((a, x) => a + x.its.reduce((b, i) => b + i.qty - i.qty_prep, 0), 0);
+    const note = !shown ? `<div class="coming-note">Items appear here as soon as a station taps them <b>done</b> on its KDS screen.</div>` : '';
+    if (ctx.p.coming === false || ctx.p.coming === 'false') return note ? `<div class="coming">${note}</div>` : '';
+    return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
+      <div class="coming-row">${list.map(({ o, its }) => `<div class="cchip ${o.is_online ? 'online' : ''}"><div class="cc1"><b>${esc(ono(o))}</b>${timerHtml(o.received_at, ctx.th)}</div>
+        ${its.map((i) => `<div class="cc2">${i.qty - i.qty_prep}× ${esc(i.item_name)} <span class="muted">· ${esc(K.stationById(i.station_id)?.name || 'no prep')}</span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
   function routeOf(c) {
@@ -498,6 +518,7 @@
       <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
+      ${ctx.kind === 'window' ? `<div class="field"><label>"Still in the kitchen" strip (orders not ready yet)</label>${seg('coming', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
