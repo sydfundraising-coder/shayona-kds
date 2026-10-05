@@ -443,3 +443,7 @@ table.t tr:hover td{background:var(--card2)}
 .locktile{display:flex;flex-direction:column;gap:6px;padding:40px 60px;border-radius:18px;background:var(--card);border:2px solid var(--accent);color:var(--text);text-decoration:none;min-width:min(90vw,420px)}
 .locktile b{font-size:2.2em}.locktile span{color:var(--muted)}
 .lockopt{gap:8px;font-size:.95em;max-width:560px;text-align:left;align-items:flex-start}
+.coming .coming-grid{padding:0;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.coming .pcard{opacity:.9}
+.coming .pc-n .mods{margin-top:2px}
+.coming .coming-grid{max-height:42vh;overflow:auto}

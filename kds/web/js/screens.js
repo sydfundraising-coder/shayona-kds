@@ -462,13 +462,14 @@
     list.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at));
     if (!list.length) return '';
     const units = list.reduce((a, x) => a + x.its.reduce((b, i) => b + i.qty - i.qty_prep, 0), 0);
-    const tag = (i) => i.skip_window ? '<span class="ctag">skips window</span>' : (!i.station_id && !i.no_prep) ? '<span class="ctag">no station</span>' : `<span class="muted">· ${esc(K.stationById(i.station_id)?.name || 'kitchen')}</span>`;
+    const tag = (i) => i.skip_window ? `<span class="ctag">skips window</span> making at ${esc(K.stationById(i.station_id)?.name || 'kitchen')}` : (!i.station_id && !i.no_prep) ? '<span class="ctag">no station</span>' : `Making at ${esc(K.stationById(i.station_id)?.name || 'kitchen')}${i.qty > 1 ? ` (${i.qty_prep}/${i.qty} made)` : ''}`;
     const note = (blocked ? `<div class="coming-note warn">⚠ Items tagged <b>skips window</b> or <b>no station</b> will not come to this screen — change them in <b>Admin → Item routing</b>.</div>` : '')
       + (!shown ? `<div class="coming-note">Items appear here as soon as a station taps them <b>done</b> on its KDS screen.</div>` : '');
     if (ctx.p.coming === false || ctx.p.coming === 'false') return note ? `<div class="coming">${note}</div>` : '';
     return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
-      <div class="coming-row">${list.map(({ o, its }) => `<div class="cchip ${o.is_online ? 'online' : ''}"><div class="cc1"><b>${esc(ono(o))}</b>${timerHtml(o.received_at, ctx.th)}</div>
-        ${its.map((i) => `<div class="cc2">${i.qty - i.qty_prep}× ${esc(i.item_name)} ${tag(i)}</div>`).join('')}</div>`).join('')}</div>${note}</div>`;
+      <div class="pgrid coming-grid">${list.map(({ o, its }) => `<div class="pcard ${o.is_online ? 'online' : ''} ${K.ageClass(o.received_at, ctx.th) ? 'st-' + K.ageClass(o.received_at, ctx.th) : ''}">
+        <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}</div>
+        ${its.map((i) => `<div class="pc-it"><span class="pc-q">${i.qty - i.qty_prep}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}${modsHtml(i)}<span class="pc-s">${tag(i)}</span></span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
   function routeOf(c) {
