@@ -18,17 +18,21 @@
     const parts = await Promise.all(files().map(async (u) => {
       const r = await fetch(u, { method: 'HEAD', cache: 'no-store' });
       if (!r.ok) throw new Error('check failed');
-      return u + '=' + (r.headers.get('etag') || r.headers.get('last-modified') || r.headers.get('content-length') || '');
+      // ignore how the file was compressed (W/ prefixes, -gzip/-br suffixes) — only real changes count
+      const tag = String(r.headers.get('etag') || '').replace(/^W\//, '').replace(/-(gzip|br|zstd|deflate)"?$/i, '').replace(/"/g, '');
+      return u + '=' + (tag || r.headers.get('last-modified') || '');
     }));
     return parts.join('|');
   }
-  let base = null, found = false;
+  let base = null, found = false, maybe = null;
   async function check() {
     if (found || !navigator.onLine) return;
     try {
       const sig = await signature();
       if (base == null) { base = sig; return; }
-      if (sig !== base) {
+      if (sig === base) { maybe = null; return; }
+      if (maybe !== sig) { maybe = sig; setTimeout(check, 20e3); return; }   // must see the same new version twice
+      {
         found = true;
         if (typeof window.KDS_ON_UPDATE === 'function') window.KDS_ON_UPDATE();
         else location.reload();

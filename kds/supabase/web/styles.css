@@ -438,3 +438,8 @@ table.t tr:hover td{background:var(--card2)}
 .pc-s{display:block;font-size:.78em;font-weight:600;color:var(--muted)}
 .pc-ok{color:var(--ok);font-weight:800}
 @media (max-width:760px){.cols.two{height:auto}.cols.two .col{overflow:visible}}
+/* locked device home */
+.lockpage{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:16px;text-align:center}
+.locktile{display:flex;flex-direction:column;gap:6px;padding:40px 60px;border-radius:18px;background:var(--card);border:2px solid var(--accent);color:var(--text);text-decoration:none;min-width:min(90vw,420px)}
+.locktile b{font-size:2.2em}.locktile span{color:var(--muted)}
+.lockopt{gap:8px;font-size:.95em;max-width:560px;text-align:left;align-items:flex-start}

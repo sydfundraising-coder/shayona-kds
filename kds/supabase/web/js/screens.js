@@ -556,11 +556,15 @@
       <div class="field"><label>New-order chime</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'window' ? `<div class="field"><label>Make line rows</label>${seg('batch', [['false', 'One row per item'], ['true', 'Group identical (same pack + modifiers)']])}</div>` : ''}
+      <div class="field"><label>This device</label><div class="row">${K.lock.get() ? `<span>🔒 Locked to <b>${esc(K.lock.get().label || '')}</b></span><button class="btn sm" id="dlock-off">Unlock (admin)</button>` : `<span class="muted">Not locked</span><button class="btn sm" id="dlock-on">🔒 Lock to this screen</button>`}</div>
+        <div class="muted" style="font-size:.82em;margin-top:4px">When locked, staff accounts on this device only see this screen. Admin accounts are never locked.</div></div>
       ${ctx.kind === 'window' ? `<div class="field"><label>"Still in the kitchen" strip (orders not ready yet)</label>${seg('coming', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
       w.querySelector('.body').onclick = (e) => {
+        if (e.target.closest('#dlock-on')) { K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim()); w.remove(); K.toast('This device is now locked to this screen'); return; }
+        if (e.target.closest('#dlock-off')) { w.remove(); K.unlockDevice(); return; }
         const b = e.target.closest('[data-v]'); if (!b) return;
         const name = b.parentElement.dataset.pref; let v = b.dataset.v;
         if (v === 'true' || v === 'false') v = v === 'true';
@@ -606,11 +610,14 @@
       return;
     }
     const o = document.createElement('div'); o.className = 'start';
+    const staff = api.mode === 'live' ? api.role !== 'admin' : true;
     o.innerHTML = `<h2>${esc(K.$('.topbar .title').textContent)}</h2><div class="muted">Tap to start this screen (turns on the new-order chime and keeps the screen awake)</div>
-      <div class="row"><button class="btn primary" data-go="1">▶ Start screen</button><button class="btn" data-go="fs">Start full screen</button></div>`;
+      <div class="row"><button class="btn primary" data-go="1">▶ Start screen</button><button class="btn" data-go="fs">Start full screen</button></div>
+      ${staff && !K.lock.get() ? `<label class="row lockopt"><input type="checkbox" id="lockme" checked> Lock this device to this screen <span class="muted">(staff only see ${esc(K.$('.topbar .title').textContent)} — an admin can unlock)</span></label>` : ''}`;
     o.onclick = (e) => {
       const g = e.target.closest('[data-go]'); if (!g) return;
       started = true; K.unlockAudio(); K.keepAwake(); ss('kds-started', '1');
+      const lm = o.querySelector('#lockme'); if (lm && lm.checked && ctx) K.lock.set(ctx.kind === 'station' ? 'station' : ctx.kind, ctx.station?.id, K.$('.topbar .title').textContent.trim());
       if (g.dataset.go === 'fs') { ss('kds-fs', '1'); document.documentElement.requestFullscreen?.().catch(() => {}); }
       o.remove();
     };

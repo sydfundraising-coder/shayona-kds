@@ -122,7 +122,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · front split v7';
+  K.VERSION = '5 Oct 2026 · lock v8';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -170,12 +170,27 @@
     if (p && !/\.html?$/i.test(p) && !location.hash) location.replace('#/' + p);
   })();
 
+  // ---- device lock: a kitchen tablet can be locked to its own screen. Staff (non-admin) accounts on a
+  // locked device only ever see that screen — the back button shows just that station.
+  K.lock = {
+    get() { try { return JSON.parse(localStorage.getItem('kds.lock') || 'null'); } catch (_) { return null; } },
+    set(name, arg, label) { try { localStorage.setItem('kds.lock', JSON.stringify({ name, arg: arg || null, label })); } catch (_) {} },
+    clear() { try { localStorage.removeItem('kds.lock'); } catch (_) {} },
+    active() { return api.mode === 'live' ? api.role !== 'admin' && !!this.get() : !!this.get() && !K.demoAdminUnlocked; },
+    hash(l) { return '#/' + l.name + (l.arg ? '/' + l.arg : ''); },
+  };
   K.render = function (dataOnly = false) {
     let r = K.route();
     if (!K.routes[r.name] && r.name) {
       const short = SHORT[slug(r.name)];
       if (short && K.routes[short]) { r = { ...r, name: short }; }
       else { const stn = K.stationByShort(r.name); if (stn) r = { ...r, name: 'station', arg: stn.id }; }
+    }
+    if (K.lock.active()) {
+      const L = K.lock.get();
+      const allowed = (r.name === L.name && (r.arg || null) === (L.arg || null)) || r.name === 'availability' || r.name === 'home' || r.name === 'locked';
+      if (!allowed) { if (!dataOnly) location.replace('#/'); return; }
+      if (r.name === 'home') r = { ...r, name: 'locked' };
     }
     const fn = K.routes[r.name] || K.routes.home;
     if (!dataOnly) { K.pageRefresh = null; hideBanner(); }
@@ -273,6 +288,43 @@
   }, 1000);
 
   // ------------------------------------------------------------------ home
+  K.routes.locked = function () {
+    K.applyTheme(K.prefs('global', { theme: 'dark' }));
+    const L = K.lock.get();
+    document.getElementById('app').innerHTML = `<div class="page lockpage">
+      <div class="muted">This device is set to</div>
+      <a class="locktile" href="${K.lock.hash(L)}"><b>${K.esc(L.label || 'Kitchen screen')}</b><span>Tap to open</span></a>
+      <button class="btn sm" id="unlock">🔒 Unlock this device (admin)</button>
+      <p class="faint" style="font-size:.8em;margin-top:24px">KDS version: ${K.esc(K.VERSION)}</p></div>`;
+    K.$('#unlock').onclick = () => K.unlockDevice();
+  };
+  K.routes.locked.static = true;
+  K.unlockDevice = function () {
+    K.modal('Unlock this device', `<p class="muted" style="margin-top:0">An admin signs in here to unlock. The kitchen account stays signed in on this device.</p>
+      <form id="ulf"><div class="field"><label>Admin email</label><input name="e" type="email" autocomplete="off" required></div>
+      <div class="field"><label>Password</label><input name="p" type="password" autocomplete="off" required></div>
+      <div id="ulerr" class="muted"></div>
+      <div class="actions"><span class="grow"></span><button type="button" class="btn" id="ulx">Cancel</button><button class="btn primary">Unlock</button></div></form>`, (w, close) => {
+      K.$('#ulx', w).onclick = close;
+      K.$('#ulf', w).onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        try {
+          if (api.mode === 'live') {
+            const cfg = window.KDS_CONFIG;
+            const tmp = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'kds-unlock-check' } });
+            const { data, error } = await tmp.auth.signInWithPassword({ email: f.e.value.trim(), password: f.p.value });
+            if (error) throw error;
+            const { data: prof } = await tmp.from('profiles').select('role').eq('user_id', data.user.id).maybeSingle();
+            await tmp.auth.signOut().catch(() => {});
+            if (prof?.role !== 'admin') throw new Error('That account is not an admin.');
+          } else K.demoAdminUnlocked = true;
+          K.lock.clear(); close(); K.toast('Device unlocked'); location.hash = '#/'; K.render();
+        } catch (err) { K.$('#ulerr', w).textContent = err.message; }
+      };
+      K.$('input', w).focus();
+    });
+  };
+
   K.routes.home = function () {
     K.applyTheme(K.prefs('global', { theme: 'dark' }));
     const s = st.cfg.stations.filter((x) => x.active);
