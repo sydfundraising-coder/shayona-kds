@@ -13,6 +13,7 @@
   const catName = (id) => st.cfg.categories.find((c) => c.square_id === id)?.name;
   const boardCat = (r) => r.board_category || r.category_name || 'UNCATEGORISED';
   const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const promoName = (m) => normName(String(m.sort || m.path || m.url || '').split('?')[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/-\d{10,}$/, '').replace(/^\d+\s*[-_.)]\s*/, ''));
   const mediaFor = (name) => (st.cfg.media || []).find((m) => m.kind === 'item' && normName(m.item_name) === normName(name));
   const reloadCfg = async () => { await K.loadConfig(); };
   // Menu control + TV screens only list items with a café stock count of 0 or more in Square
@@ -245,6 +246,13 @@
   function tabMedia() {
     const media = st.cfg.media || [];
     const items = media.filter((m) => m.kind === 'item').sort((a, b) => a.item_name.localeCompare(b.item_name));
+    const promoStatus = (m) => {
+      if (m.is_video) return '<div class="pill badge-online" style="margin:6px 0 0">▶ Video · always plays</div>';
+      const it = menuItems().find((c) => normName(c.item_name) === promoName(m));
+      if (!it) return '<div class="pill badge-cancel" style="margin:6px 0 0" title="Rename the file to the item\'s name, or upload it under the item above">Not shown · no menu item with this name</div>';
+      const on = menuItems().some((c) => c.item_id === it.item_id && c.available);
+      return `<div class="pill ${on ? 'badge-walkin' : 'badge-cancel'}" style="margin:6px 0 0">${on ? 'Showing' : 'Hidden'} · ${esc(it.item_name)} is ${on ? 'available' : 'sold out'}</div>`;
+    };
     const promos = media.filter((m) => m.kind === 'promo').sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
     const names = [...new Set(menuItems().map((c) => c.item_name))].sort();
     const missing = [...new Set(menuItems().filter((c) => c.available && !mediaFor(c.item_name)).map((c) => c.item_name))].sort();
@@ -260,9 +268,10 @@
       <h2>Dish photos &amp; videos (${items.length})</h2>
       <div class="media-grid">${items.map((m) => `<div class="media-card">${thumb(m)}<div class="row"><b class="grow">${esc(m.item_name)}</b><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>
       <h2>Promos &amp; announcements (${promos.length})</h2>
-      <div class="card"><p class="muted" style="font-size:.88em;margin-top:0">Ads or notices that aren't menu items — they play in the slideshow without a price. They play in name order (name files 1-…, 2-… to set the order).</p>
+      <div class="card"><p class="muted" style="font-size:.88em;margin-top:0">Promo <b>videos</b> play in the slideshow all the time, in name order (name files 1-…, 2-… to set the order). For dish photos, use the item list above so they only show while the item is available.</p>
         <div class="row"><input type="file" id="pfile" accept="image/*,video/mp4,video/webm" multiple><button class="btn primary" id="pup">Upload promos</button></div></div>
-      <div class="media-grid">${promos.map((m) => `<div class="media-card">${thumb(m)}<div class="row"><span class="grow muted" style="font-size:.85em;word-break:break-all">${esc(m.sort || m.path)}</span><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>`;
+      <p class="muted" style="font-size:.88em;margin-top:0"><b>Videos always play.</b> Pictures only play when their file name matches a menu item that's available (e.g. <i>2-Pav Bhaji.jpg</i>); other pictures are left out of the slideshow.</p>
+      <div class="media-grid">${promos.map((m) => `<div class="media-card">${thumb(m)}${promoStatus(m)}<div class="row"><span class="grow muted" style="font-size:.85em;word-break:break-all">${esc(m.sort || m.path)}</span><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>`;
 
     const big = (f) => f.size > 50 * 1024 * 1024;
     K.$('#mup').onclick = async (e) => {

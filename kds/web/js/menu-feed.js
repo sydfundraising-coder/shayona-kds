@@ -28,6 +28,8 @@
     cacheAt = Date.now();
     return cache;
   }
+  // file name of an uploaded promo without folder, extension or a leading order number ("2-Pav Bhaji.jpg" → "pav bhaji")
+  const promoName = (m) => normName(String(m.sort || m.path || m.url || '').split('?')[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/-\d{10,}$/, '').replace(/^\d+\s*[-_.)]\s*/, ''));
   const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
   // same shape as the Menu Manager's menuView()
@@ -77,9 +79,20 @@
       const v = it.variations.find((x) => x.available) || {};
       slides.push({ name: it.name, price: v.price, image: m.url, video: !!m.is_video, source: 'kds', isNew: !!v.isNew });
     });
+    // Promos: videos always play. Pictures only play when their file name matches a menu item
+    // that is available right now (e.g. "2-Pav Bhaji.jpg"); other pictures are left out.
+    const availByName = new Map(items.map((it) => [normName(it.name), it]));
     const promos = media.filter((m) => m.kind === 'promo').sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
-    promos.forEach((p) => slides.push({ name: '', price: null, image: p.url, video: !!p.is_video, promo: true, isNew: false }));
-    return { updatedAt: new Date().toISOString(), slides, localImages: Object.keys(byName).length, promos: promos.length, availableItems: items.length };
+    let hidden = 0;
+    promos.forEach((p) => {
+      if (p.is_video) return slides.push({ name: '', price: null, image: p.url, video: true, promo: true, isNew: false });
+      const it = availByName.get(promoName(p));
+      if (it && !byName[normName(it.name)]) {
+        const v = it.variations.find((x) => x.available) || {};
+        slides.push({ name: it.name, price: v.price, image: p.url, video: false, source: 'promo', isNew: !!v.isNew });
+      } else hidden++;
+    });
+    return { updatedAt: new Date().toISOString(), slides, localImages: Object.keys(byName).length, promos: promos.length, hiddenPromos: hidden, availableItems: items.length };
   }
   async function notice() { return (await feed()).notice || { active: false }; }
 
@@ -97,5 +110,5 @@
     }
     return realFetch(url, opts);
   };
-  window.KDS_MENU_FEED = { feed, board, slideshow, notice, menuView };
+  window.KDS_MENU_FEED = { feed, board, slideshow, notice, menuView, promoName };
 })();
