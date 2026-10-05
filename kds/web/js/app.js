@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '5 Oct 2026 · never sign out v15';
+  K.VERSION = '5 Oct 2026 · order tracker v16';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -176,9 +176,9 @@
     const h = location.hash.replace(/^#\/?/, '').split('?')[0];
     // TV pages never need a login — send them to their own page, whatever way they were typed
     const TV = { 'menu-board': '/menu-board.html', menuboard: '/menu-board.html', tv: '/menu-board.html', tvmenu: '/menu-board.html', 'tv-menu': '/menu-board.html',
-      'menu-slideshow': '/menu-slideshow.html', slideshow: '/menu-slideshow.html', photos: '/menu-slideshow.html' };
+      'menu-slideshow': '/menu-slideshow.html', slideshow: '/menu-slideshow.html', photos: '/menu-slideshow.html', track: '/track.html', order: '/track.html' };
     const key = (p && !/\.html?$/i.test(p) ? p : h).toLowerCase().replace(/\.html?$/, '');
-    if (TV[key]) { K.redirecting = true; location.replace(TV[key]); return; }
+    if (TV[key]) { const hq = location.hash.split('?')[1]; K.redirecting = true; location.replace(TV[key] + (location.search || (hq ? '?' + hq : ''))); return; }
     if (p && !/\.html?$/i.test(p) && !location.hash) location.replace('#/' + p);
   })();
 

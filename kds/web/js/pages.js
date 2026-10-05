@@ -323,12 +323,13 @@
   }
 
   function tabLinks() {
-    const TVL = ['tv', 'slideshow'];
+    const TVL = ['tv', 'slideshow', 'track', 'track?poster=1'];
     const links = [
       ...st.cfg.stations.filter((s) => s.active).sort((a, b) => a.sort - b.sort).map((s) => [s.name + ' station', K.stationSlug(s)]),
       ['Order handling window', 'window'], ['Front counter', 'front'], ['Customer pickup board (TV)', 'board'],
       ['Item availability', 'avail'], ['Menu control', 'menu'], ['Reports', 'reports'],
       ['TV menu board (no login)', 'tv'], ['Photo slideshow (no login)', 'slideshow'],
+      ['Customer order tracker (no login) — put the QR on the counter', 'track'], ['Printable QR sign for the counter', 'track?poster=1'],
     ];
     K.$('#tab').innerHTML = `<p class="muted">Open each link on the tablet/TV for that spot and add it to the home screen (or bookmark it). Each screen remembers its own layout.
       Short addresses also work by number: <code>/1</code>, <code>/2</code>… opens station 1, 2… in display order.</p>

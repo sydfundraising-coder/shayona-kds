@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<title>Shayona Cafe · Track my order</title>
+<style>
+  :root{--bg:#f6f4ef;--card:#ffffff;--text:#1d1a16;--muted:#6f675c;--line:#e7e1d6;--accent:#e8791a;--accent-ink:#ffffff;--ok:#15995c;--ok-bg:#e7f6ee;--warn:#c47a10;--warn-bg:#fdf3e1;color-scheme:light}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#18222e;--text:#eef2f6;--muted:#9aa6b5;--line:#283545;--accent:#f0913a;--accent-ink:#1d1200;--ok:#3ccf8e;--ok-bg:#0f2a20;--warn:#f2a43a;--warn-bg:#2b2112;color-scheme:dark}}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
+  .wrap{max-width:520px;margin:0 auto;padding:22px 16px 40px;min-height:100dvh;display:flex;flex-direction:column;gap:16px}
+  header{text-align:center;padding-top:6px}
+  header .brand{font-weight:900;font-size:1.5em;letter-spacing:-.01em;color:var(--accent)}
+  header .sub{color:var(--muted);font-size:.95em;margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.05)}
+  label{display:block;font-weight:700;margin-bottom:8px}
+  input{width:100%;font:inherit;font-size:2em;font-weight:900;text-align:center;letter-spacing:.06em;padding:14px;border-radius:14px;border:2px solid var(--line);background:var(--bg);color:var(--text)}
+  input:focus{outline:none;border-color:var(--accent)}
+  .btn{display:block;width:100%;font:inherit;font-size:1.15em;font-weight:800;border:0;border-radius:14px;padding:16px;margin-top:14px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);font-size:.95em;padding:10px;font-weight:700}
+  .hint{color:var(--muted);font-size:.92em;line-height:1.45;margin-top:12px}
+  .hint b{color:var(--text)}
+  .ono{text-align:center;font-size:.95em;color:var(--muted)}
+  .ono b{display:block;font-size:3.6em;line-height:1;color:var(--text);letter-spacing:-.02em;margin-top:4px}
+  .status{text-align:center;font-size:1.5em;font-weight:900;margin-top:14px}
+  .status small{display:block;font-size:.6em;font-weight:600;color:var(--muted);margin-top:4px}
+  .dots::after{content:'';animation:dots 1.5s steps(4) infinite}
+  @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+  .bar{height:12px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:14px}
+  .bar>i{display:block;height:100%;width:0;background:var(--ok);border-radius:999px;transition:width .6s ease}
+  .items{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .items li{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-top:1px solid var(--line);font-weight:700}
+  .items li span:last-child{color:var(--muted);font-weight:700;white-space:nowrap}
+  .items li.done span:last-child{color:var(--ok)}
+  .part{background:var(--warn-bg);border:2px solid var(--warn);color:var(--text);border-radius:14px;padding:12px 14px;margin-top:14px;font-weight:800;text-align:center}
+  .keep{display:flex;gap:10px;align-items:flex-start;background:var(--ok-bg);border-radius:14px;padding:12px 14px;font-size:.92em;line-height:1.4}
+  .keep b{display:block}
+  .warnmsg{background:var(--warn-bg);border-radius:14px;padding:12px 14px;font-size:.92em;line-height:1.4}
+  /* ready: full screen */
+  .ready{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;background:#15995c;color:#fff;animation:rflash 1s ease-in-out infinite}
+  @keyframes rflash{0%,100%{background:#15995c}50%{background:#22c97a}}
+  .ready .big{font-size:4.5em;font-weight:900;line-height:1}
+  .ready .t{font-size:2.1em;font-weight:900}
+  .ready .s{font-size:1.15em;opacity:.95}
+  .ready .btn{background:#fff;color:#0d5c37;max-width:360px;font-size:1.3em}
+  .hidden{display:none!important}
+  footer{margin-top:auto;text-align:center;color:var(--muted);font-size:.8em}
+  /* printable sign */
+  .poster{max-width:760px;margin:0 auto;padding:40px 24px;text-align:center;color:#1d1a16;background:#fff;min-height:100vh}
+  .poster h1{font-size:2.6em;margin:0 0 6px;color:#e8791a}
+  .poster h2{font-size:1.6em;margin:0 0 24px}
+  .poster .qr{width:min(70vw,380px);margin:10px auto 18px;padding:14px;border:3px solid #1d1a16;border-radius:18px}
+  .poster .qr svg{width:100%;height:auto;display:block}
+  .poster ol{display:inline-block;text-align:left;font-size:1.3em;line-height:1.7;margin:0 0 18px}
+  .poster .url{font-size:1.1em;color:#6f675c}
+  @media print{.noprint{display:none!important} body,.poster{background:#fff}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="config.js?v=20261005p"></script>
+<script src="js/vendor/supabase.js?v=20261005p"></script>
+<script src="js/vendor/qrcode.js?v=20261005p"></script>
+<script src="js/auto-update.js?v=20261005p"></script>
+<script>
+(function () {
+  const root = document.getElementById('root');
+  const q = new URLSearchParams(location.search);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const trackUrl = location.origin + '/track';
+  const qrSvg = (text) => { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); return qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true }); };
+
+  // ---------------------------------------------------------------- printable counter sign
+  if (q.get('poster')) {
+    root.innerHTML = `<div class="poster">
+      <h1>Shayona Cafe</h1><h2>Get a buzz on your phone when your order is ready</h2>
+      <div class="qr">${qrSvg(trackUrl)}</div>
+      <ol><li>Scan this code with your phone camera</li><li>Type your <b>order number</b></li><li>Keep the page open — your phone will <b>ring &amp; vibrate</b> when it's ready</li></ol>
+      <div class="url">No app or sign-up needed · ${esc(trackUrl.replace(/^https?:\/\//, ''))}</div>
+      <p class="noprint" style="margin-top:28px"><button class="btn" style="max-width:280px;margin:0 auto" onclick="print()">🖨 Print this sign</button></p></div>`;
+    return;
+  }
+
+  // ---------------------------------------------------------------- data: live (Supabase) or demo
+  const cfg = window.KDS_CONFIG || {};
+  const live = !!(String(cfg.supabaseUrl || '').trim() && String(cfg.supabaseAnonKey || '').trim() && window.supabase && !cfg.demo);
+  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+  let demoStart = Date.now();
+  async function fetchOrder(no) {
+    if (sb) { const { data, error } = await sb.rpc('kds_track', { p_no: no }); if (error) throw error; return data; }
+    // demo: an order that gets part-ready at 8s and fully ready at 16s
+    const t = (Date.now() - demoStart) / 1000;
+    const items = [{ name: 'PAV BHAJI', qty: 2, ready: t > 8 ? 2 : 0, collected: 0 }, { name: 'MANGO LASSI', qty: 1, ready: t > 16 ? 1 : 0, collected: 0 }];
+    const ready = items.reduce((a, i) => a + i.ready, 0);
+    return { found: true, order_no: no, status: t > 16 ? 'ready' : 'preparing', total: 3, collected: 0, collectable: ready, items };
+  }
+
+  // ---------------------------------------------------------------- sound, vibration, screen on
+  let actx = null, alarm = null, wake = null;
+  const unlock = () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume(); } catch (_) {} };
+  function tone(notes, gap = 0.22, vol = 1) {
+    if (!actx) return;
+    const m = actx.createGain(); m.gain.value = vol; m.connect(actx.destination);
+    notes.forEach((f, i) => {
+      const t = actx.currentTime + i * gap;
+      [[f, 'sine', .9], [f * 2, 'triangle', .25]].forEach(([fr, ty, a]) => {
+        const o = actx.createOscillator(), g = actx.createGain(); o.type = ty; o.frequency.value = fr; o.connect(g); g.connect(m);
+        g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(a, t + .015); g.gain.exponentialRampToValueAtTime(.0001, t + .5); o.start(t); o.stop(t + .55);
+      });
+    });
+  }
+  const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch (_) {} };
+  async function keepAwake() { try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch (_) {} }
+  function notify(title, body) {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) return navigator.serviceWorker.ready.then((r) => r.showNotification(title, { body, vibrate: [400, 150, 400, 150, 800], tag: 'order', renotify: true, requireInteraction: true }));
+      new Notification(title, { body, tag: 'order', requireInteraction: true });
+    } catch (_) {}
+  }
+  function startAlarm() {
+    stopAlarm(); const ring = () => { tone([1175, 1568, 2093], .2, 1); buzz([500, 150, 500, 150, 900]); };
+    ring(); alarm = setInterval(ring, 2600);
+  }
+  function stopAlarm() { clearInterval(alarm); alarm = null; buzz(0); }
+
+  // ---------------------------------------------------------------- state
+  const today = () => new Date().toDateString();
+  const save = (no) => { try { localStorage.setItem('track', JSON.stringify({ no, day: today(), seenReady: false, seenPart: 0 })); } catch (_) {} };
+  const load = () => { try { const v = JSON.parse(localStorage.getItem('track') || 'null'); return v && v.day === today() ? v : null; } catch (_) { return null; } };
+  const patch = (o) => { const v = load(); if (v) { Object.assign(v, o); try { localStorage.setItem('track', JSON.stringify(v)); } catch (_) {} } };
+  let timer = null, notFoundSince = null;
+
+  // ---------------------------------------------------------------- screens
+  function askScreen(msg) {
+    clearTimeout(timer); stopAlarm();
+    root.innerHTML = `<div class="wrap"><header><div class="brand">Shayona Cafe</div><div class="sub">Get told the moment your order is ready</div></header>
+      <div class="card"><form id="f"><label for="no">Your order number</label>
+        <input id="no" inputmode="numeric" autocomplete="off" placeholder="e.g. 105" maxlength="10" required value="${esc(q.get('o') || '')}">
+        ${msg ? `<div class="warnmsg" style="margin-top:12px">${msg}</div>` : ''}
+        <button class="btn" type="submit">🔔 Notify me when it's ready</button></form>
+        <div class="hint">Your order number is on your receipt, or ask at the counter.<br>No app or sign-up needed — <b>just keep this page open</b> and your phone will ring and vibrate when your order is ready.</div></div>
+      <footer>Shayona Cafe · order tracker</footer></div>`;
+    const f = document.getElementById('f');
+    f.onsubmit = (e) => {
+      e.preventDefault(); const no = document.getElementById('no').value.trim().replace(/^#/, ''); if (!no) return;
+      unlock(); tone([880, 1175], .15, .6);                          // confirms sound works (and unlocks it)
+      if ('Notification' in window && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (_) {} }
+      save(no); demoStart = Date.now(); notFoundSince = null; keepAwake(); track();
+    };
+  }
+
+  function trackScreen(no, d) {
+    const total = d.total || 0, done = d.collected || 0, can = d.collectable || 0;
+    const readyUnits = (d.items || []).reduce((a, i) => a + Math.max(0, (i.ready || 0)), 0);
+    const pct = total ? Math.round(readyUnits / total * 100) : 0;
+    const status = d.status === 'ready' ? 'Ready!' : d.status === 'completed' ? 'Collected — enjoy! 🙏' : d.status === 'cancelled' ? 'This order was cancelled' : `Preparing<span class="dots"></span>`;
+    const sub = d.status === 'ready' ? 'Please collect from the counter' : d.status === 'completed' ? '' : d.status === 'cancelled' ? 'Please speak to the counter' : 'We\'ll ring and vibrate your phone when it\'s ready';
+    root.innerHTML = `<div class="wrap"><header><div class="brand">Shayona Cafe</div></header>
+      <div class="card"><div class="ono">Order<b>#${esc(d.order_no || no)}</b></div>
+        <div class="status">${status}<small>${sub}</small></div>
+        ${d.status !== 'completed' && d.status !== 'cancelled' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}
+        ${d.status !== 'ready' && d.status !== 'completed' && can > 0 ? `<div class="part">Part of your order is ready — you can collect ${can} item${can > 1 ? 's' : ''} now</div>` : ''}
+        <ul class="items">${(d.items || []).map((i) => { const r = Math.min(i.qty, i.ready || 0), c = i.collected || 0;
+          return `<li class="${r >= i.qty ? 'done' : ''}"><span>${i.qty}× ${esc(i.name)}</span><span>${c >= i.qty ? 'collected' : r >= i.qty ? '✓ ready' : r > 0 ? `${r} of ${i.qty} ready` : 'preparing'}</span></li>`; }).join('')}</ul></div>
+      ${d.status !== 'completed' && d.status !== 'cancelled' ? `<div class="keep"><span style="font-size:1.4em">📱</span><div><b>Keep this page open</b>Your screen will stay on. Turn your phone's volume up — it will ring and vibrate when your order is ready.</div></div>` : ''}
+      <button class="btn ghost" id="chg">Track a different order</button>
+      <footer>Updates automatically</footer></div>
+      <div class="ready hidden" id="rdy"><div class="big">🔔</div><div class="t">Your order #${esc(d.order_no || no)} is READY</div><div class="s">Please collect it from the counter</div><button class="btn" id="got">Got it 👍</button></div>`;
+    document.getElementById('chg').onclick = () => { try { localStorage.removeItem('track'); } catch (_) {} askScreen(); };
+    document.getElementById('got').onclick = () => { stopAlarm(); patch({ seenReady: true }); document.getElementById('rdy').classList.add('hidden'); };
+  }
+
+  async function track() {
+    clearTimeout(timer);
+    const st = load(); if (!st) return askScreen();
+    let d;
+    try { d = await fetchOrder(st.no); }
+    catch (e) { if (!root.querySelector('.ono')) root.innerHTML = `<div class="wrap"><div class="card"><div class="status">Connecting<span class="dots"></span><small>Check your phone has internet. We'll keep trying.</small></div></div></div>`; timer = setTimeout(track, 6000); return; }
+    if (!d || !d.found) {
+      notFoundSince = notFoundSince || Date.now();
+      if (Date.now() - notFoundSince > 5 * 60e3) return askScreen(`We couldn't find order <b>#${esc(st.no)}</b> for today. Please check the number on your receipt.`);
+      root.innerHTML = `<div class="wrap"><header><div class="brand">Shayona Cafe</div></header><div class="card"><div class="ono">Order<b>#${esc(st.no)}</b></div>
+        <div class="status">Looking for your order<span class="dots"></span><small>It can take a moment to reach the kitchen. If the number is wrong, change it below.</small></div></div>
+        <button class="btn ghost" id="chg">Change order number</button></div>`;
+      document.getElementById('chg').onclick = () => { try { localStorage.removeItem('track'); } catch (_) {} askScreen(); };
+      timer = setTimeout(track, 5000); return;
+    }
+    notFoundSince = null;
+    trackScreen(st.no, d);
+    const can = d.collectable || 0;
+    if (d.status === 'ready' && !st.seenReady) {
+      document.getElementById('rdy').classList.remove('hidden'); startAlarm();
+      notify(`Order #${d.order_no} is ready!`, 'Please collect it from the counter.');
+    } else if (d.status !== 'ready' && d.status !== 'completed' && can > (st.seenPart || 0)) {
+      patch({ seenPart: can }); tone([1175, 1568], .2, 1); buzz([400, 150, 400]);
+      notify(`Part of order #${d.order_no} is ready`, `You can collect ${can} item${can > 1 ? 's' : ''} now.`);
+    }
+    if (d.status === 'completed' || d.status === 'cancelled') { stopAlarm(); return; }      // all done: stop checking
+    timer = setTimeout(track, document.visibilityState === 'visible' ? 4000 : 15000);
+  }
+
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); if (load()) track(); } });
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { capture: true, passive: true }));
+  window.addEventListener('online', () => { if (load()) track(); });
+  if (q.get('o') && (!load() || load().no !== q.get('o'))) save(q.get('o'));
+  load() ? (keepAwake(), track()) : askScreen();
+})();
+</script>
+</body>
+</html>

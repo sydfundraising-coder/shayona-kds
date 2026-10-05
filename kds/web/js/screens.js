@@ -725,6 +725,7 @@
     document.getElementById('app').innerHTML = `<div class="pboard two"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
       <section class="serving"><h2>Now serving</h2><div class="nums" id="pb-ready"></div>
       <div class="pb-key"><span class="k part"></span>Part of your order is ready <span class="k all"></span>Whole order ready</div></section></div>
+      ${window.qrcode ? `<div class="pb-qr"><div class="pb-qr-code">${(() => { const qr = qrcode(0, 'M'); qr.addData(location.origin + '/track'); qr.make(); return qr.createSvgTag({ cellSize: 6, margin: 1, scalable: true }); })()}</div><div><b>Get a buzz when it's ready</b><span>Scan · type your order number · keep the page open</span></div></div>` : ''}
       <a href="#/" class="iconbtn" style="position:fixed;left:8px;bottom:8px;opacity:.25">←</a>`;
     K.$('.pboard').onclick = () => { K.unlockAudio(); K.keepAwake(); document.documentElement.requestFullscreen?.().catch(() => {}); };
     K.routes.board.onData();
