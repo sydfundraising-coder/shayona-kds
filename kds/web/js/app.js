@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '6 Oct 2026 · staff access v20';
+  K.VERSION = '6 Oct 2026 · free screens v21';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -184,11 +184,13 @@
 
   // ---- device lock: a kitchen tablet can be locked to its own screen. Staff (non-admin) accounts on a
   // locked device only ever see that screen — the back button shows just that station.
+  try { localStorage.removeItem('kds.lock'); } catch (_) {}   // clear any old device locks
   K.lock = {
     get() { try { return JSON.parse(localStorage.getItem('kds.lock') || 'null'); } catch (_) { return null; } },
     set(name, arg, label) { try { localStorage.setItem('kds.lock', JSON.stringify({ name, arg: arg || null, label })); } catch (_) {} },
     clear() { try { localStorage.removeItem('kds.lock'); } catch (_) {} },
-    active() { return api.mode === 'live' ? api.role !== 'admin' && !!this.get() : !!this.get() && !K.demoAdminUnlocked; },
+    // switched off: staff move freely between kitchen screens; Manage/Admin are protected by the account role instead
+    active() { return false; },
     hash(l) { return '#/' + l.name + (l.arg ? '/' + l.arg : ''); },
   };
   K.render = function (dataOnly = false) {
