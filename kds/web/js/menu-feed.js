@@ -66,7 +66,7 @@
   }
   async function slideshow() {
     const f = await feed();
-    const media = f.media || [];
+    const media = (f.media || []).filter((m) => !m.paused);   // paused promos stay off the TV
     const byName = {};
     media.filter((m) => m.kind === 'item').forEach((m) => {
       const k = normName(m.item_name);

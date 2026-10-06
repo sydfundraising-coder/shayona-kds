@@ -89,11 +89,11 @@
      text-transform:uppercase;margin-bottom:1.2vh;color:#ffd9a0}
   .notice .nhours div{font-family:'Poppins',sans-serif;font-weight:500;font-size:3vh;line-height:1.5;color:#fff}
 </style>
-<script src="config.js?v=20261005h"></script>
-<script src="js/vendor/supabase.js?v=20261005h"></script>
-<script src="js/demo-menu.js?v=20261005h"></script>
-<script src="js/menu-feed.js?v=20261005h"></script>
-<script src="js/auto-update.js?v=20261005h"></script>
+<script src="config.js?v=20261006c"></script>
+<script src="js/vendor/supabase.js?v=20261006c"></script>
+<script src="js/demo-menu.js?v=20261006c"></script>
+<script src="js/menu-feed.js?v=20261006c"></script>
+<script src="js/auto-update.js?v=20261006c"></script>
 </head>
 <body>
 <div class="stage" id="stage">
@@ -128,7 +128,7 @@ const RELOAD_MS = 15000;   // re-check availability every 15 seconds
 function titleCase(s){return String(s).replace(/\w\S*/g,t=>t.charAt(0).toUpperCase()+t.slice(1).toLowerCase());}
 function money(p){return p==null?'':'$'+Number(p).toFixed(2);}
 
-let slides=[], idx=0, layer=0, timer=null, videoPlaying=false;
+let slides=[], idx=0, layer=0, timer=null, videoPlaying=false, cur=null;
 const els=[document.getElementById('s0'),document.getElementById('s1')];
 const imgs=[els[0].querySelector('.img'),els[1].querySelector('.img')];
 const vids=[els[0].querySelector('.vid'),els[1].querySelector('.vid')];
@@ -163,6 +163,7 @@ async function step(){
     return;
   }
   hideMessage();
+  cur = s.image;
   const next = 1 - layer;
   const imgEl=imgs[next], vidEl=vids[next];
   // reset this layer's media before showing the new slide
@@ -215,6 +216,8 @@ async function load(){
     }
     hideMessage();
     slides = fresh;
+    // the slide on screen was paused or removed in Menu control → move on straight away
+    if(cur && !fresh.some(x=>x.image===cur)){ cur=null; advance(); return; }
     if(!timer && !videoPlaying){ idx=0; step(); }   // (re)start the loop only if idle
   }catch(e){
     // Only surface an error if we have nothing on screen yet.

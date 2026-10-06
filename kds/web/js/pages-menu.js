@@ -247,6 +247,7 @@
     const media = st.cfg.media || [];
     const items = media.filter((m) => m.kind === 'item').sort((a, b) => a.item_name.localeCompare(b.item_name));
     const promoStatus = (m) => {
+      if (m.paused) return '<div class="pill badge-cancel" style="margin:6px 0 0">⏸ Paused · not on the slideshow</div>';
       if (m.is_video) return '<div class="pill badge-online" style="margin:6px 0 0">▶ Video · always plays</div>';
       const it = menuItems().find((c) => normName(c.item_name) === promoName(m));
       if (!it) return '<div class="pill badge-cancel" style="margin:6px 0 0" title="Rename the file to the item\'s name, or upload it under the item above">Not shown · no menu item with this name</div>';
@@ -268,10 +269,10 @@
       <h2>Dish photos &amp; videos (${items.length})</h2>
       <div class="media-grid">${items.map((m) => `<div class="media-card">${thumb(m)}<div class="row"><b class="grow">${esc(m.item_name)}</b><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>
       <h2>Promos &amp; announcements (${promos.length})</h2>
-      <div class="card"><p class="muted" style="font-size:.88em;margin-top:0">Promo <b>videos</b> play in the slideshow all the time, in name order (name files 1-…, 2-… to set the order). For dish photos, use the item list above so they only show while the item is available.</p>
+      <div class="card"><p class="muted" style="font-size:.88em;margin-top:0">Promo <b>videos</b> play in the slideshow all the time (tap <b>⏸ Pause</b> to take one off the TV for now, <b>▶ Resume</b> to bring it back), in name order (name files 1-…, 2-… to set the order). For dish photos, use the item list above so they only show while the item is available.</p>
         <div class="row"><input type="file" id="pfile" accept="image/*,video/mp4,video/webm" multiple><button class="btn primary" id="pup">Upload promos</button></div></div>
       <p class="muted" style="font-size:.88em;margin-top:0"><b>Videos always play.</b> Pictures only play when their file name matches a menu item that's available (e.g. <i>2-Pav Bhaji.jpg</i>); other pictures are left out of the slideshow.</p>
-      <div class="media-grid">${promos.map((m) => `<div class="media-card">${thumb(m)}${promoStatus(m)}<div class="row"><span class="grow muted" style="font-size:.85em;word-break:break-all">${esc(m.sort || m.path)}</span><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>`;
+      <div class="media-grid">${promos.map((m) => `<div class="media-card">${thumb(m)}${promoStatus(m)}<div class="row"><span class="grow muted" style="font-size:.85em;word-break:break-all">${esc(m.sort || m.path)}</span><button class="btn sm ${m.paused ? 'ok' : ''}" data-pause="${m.id}" data-on="${m.paused ? 0 : 1}">${m.paused ? '▶ Resume' : '⏸ Pause'}</button><button class="btn sm" data-del="${m.id}" data-path="${esc(m.path)}">Delete</button></div></div>`).join('') || '<div class="muted">None yet.</div>'}</div>`;
 
     const big = (f) => f.size > 50 * 1024 * 1024;
     K.$('#mup').onclick = async (e) => {
@@ -293,6 +294,13 @@
     };
     K.$('#mtab').onclick = async (e) => {
       const p = e.target.closest('[data-pick]'); if (p) { K.$('#mi').value = p.dataset.pick; K.$('#mfile').click(); return; }
+      const pz = e.target.closest('[data-pause]');
+      if (pz) {
+        pz.disabled = true;
+        try { await api.setMediaPaused(pz.dataset.pause, pz.dataset.on === '1'); await reloadCfg(); K.toast(pz.dataset.on === '1' ? 'Paused — it leaves the slideshow within 15 seconds' : 'Resumed — back on the slideshow'); tabMedia(); }
+        catch (err) { K.toast(err.message, { error: true }); pz.disabled = false; }
+        return;
+      }
       const d = e.target.closest('[data-del]'); if (!d) return;
       if (!(await K.confirm('Delete this file?', 'It will stop showing on the slideshow.', 'Delete', true))) return;
       try { await api.deleteMedia(d.dataset.del, d.dataset.path); await reloadCfg(); tabMedia(); } catch (err) { K.toast(err.message, { error: true }); }

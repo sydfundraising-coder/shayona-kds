@@ -280,6 +280,11 @@
       }
       this._chk(await this.sb.from('menu_media').insert({ kind, item_name: kind === 'item' ? itemName : null, path, url, is_video: isVideo, sort: kind === 'promo' ? file.name.toLowerCase() : null }));
     }
+    async setMediaPaused(id, paused) {
+      const r = await this.sb.from('menu_media').update({ paused: !!paused }).eq('id', id);
+      if (r.error && /paused/.test(r.error.message || '')) throw new Error('Run SQL file 016_pause_promos.sql in Supabase first');
+      this._chk(r);
+    }
     async deleteMedia(id, path) {
       await this.sb.storage.from('menu-media').remove([path]);
       this._chk(await this.sb.from('menu_media').delete().eq('id', id));
@@ -614,6 +619,7 @@
       this.media.push({ id: uuid(), kind, item_name: kind === 'item' ? itemName : null, path: file.name, url, is_video: /^video\//.test(file.type), sort: file.name.toLowerCase() });
     }
     async deleteMedia(id) { this.media = this.media.filter((m) => m.id !== id); }
+    async setMediaPaused(id, paused) { const m = this.media.find((x) => x.id === id); if (m) m.paused = !!paused; }
     async syncCatalog() { await new Promise((r) => setTimeout(r, 600)); return { ok: true, categories: this.categories.length, variations: this.catalog.length, demo: true }; }
     async syncOrders() { return { ok: true, ingested: 0, demo: true }; }
     // ---- demo sales history: two years of made-up but realistic trading, built from the real menu
