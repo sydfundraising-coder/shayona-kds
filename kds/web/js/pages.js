@@ -17,7 +17,7 @@
           <select id="stf"><option value="">All stations</option>${st.cfg.stations.map((s) => `<option value="${s.id}" ${s.id === stationId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}<option value="__none">No-prep items</option></select>
           <select id="vf"><option value="">All items</option><option value="off">Unavailable only</option></select>
         </div>
-        <p class="muted" style="font-size:.88em">Switching an item off marks it <b>sold out in Square</b> at Shayona Cafe (POS &amp; online) and shows it as 86'd on the kitchen screens. Switch it back on when it's available again.</p>
+        <p class="muted" style="font-size:.88em">Switching an item off marks it <b>sold out in Square</b> at Shayona Cafe (POS &amp; online) and shows it as listed as “Sold out” on the kitchen screens. Switch it back on when it's available again.</p>
         <div id="alist"></div>
       </div>${demoFlag()}`;
     const draw = () => {
