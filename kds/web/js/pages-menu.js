@@ -16,9 +16,9 @@
   const promoName = (m) => normName(String(m.sort || m.path || m.url || '').split('?')[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '').replace(/-\d{10,}$/, '').replace(/^\d+\s*[-_.)]\s*/, ''));
   const mediaFor = (name) => (st.cfg.media || []).find((m) => m.kind === 'item' && normName(m.item_name) === normName(name));
   const reloadCfg = async () => { await K.loadConfig(); };
-  // Menu control + TV screens only list items with a café stock count of 0 or more in Square
-  // (the items managed on the menu). Before 006 is run there is no stock column, so show everything.
-  const onMenu = (c) => !c.is_deleted && (!('stock_qty' in c) || (c.stock_qty != null && Number(c.stock_qty) >= 0));
+  // Menu control + TV screens list every item with a café stock count in Square — including negative
+  // counts (oversold), so they can be switched back on. Before 006 is run there is no stock column, so show everything.
+  const onMenu = (c) => !c.is_deleted && (!('stock_qty' in c) || c.stock_qty != null);
   const menuItems = () => st.cfg.catalog.filter(onMenu);
   let autoWaits = {};
 

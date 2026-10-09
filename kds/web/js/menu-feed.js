@@ -15,7 +15,7 @@
         category_ids: [cid], board_category: null, price_cents: price, description: '', available: name !== 'MASALA PUFF',
         jain: !!jain, is_new: name === 'MARGHERITA PIZZA', wait_min: name === 'PAV BHAJI' ? 15 : null, addon: null,
         stock_qty: /SWEETS/.test(cat) ? null : 1000 };
-    }).filter((v) => v.stock_qty != null && v.stock_qty >= 0);
+    }).filter((v) => v.stock_qty != null);
     return { updatedAt: new Date().toISOString(), items, categories: cats, media: [], banner: '', notice: { active: false }, autoWaits: {} };
   }
   async function feed() {

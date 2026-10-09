@@ -74,7 +74,7 @@
     K.pageRefresh = tabHealth;                       // re-check when routing changes elsewhere
     const stations = st.cfg.stations.filter((x) => x.active);
     const cat = st.cfg.catalog.filter((c) => !c.is_deleted);
-    const onMenu = cat.filter((c) => !('stock_qty' in c) || (c.stock_qty != null && Number(c.stock_qty) >= 0));
+    const onMenu = cat.filter((c) => !('stock_qty' in c) || c.stock_qty != null);
     const catOf = (c) => st.cfg.categories.find((k) => k.square_id === c.category_id);
     const routed = onMenu.filter((c) => K.routeOf(c));
     const noPrep = onMenu.filter((c) => !K.routeOf(c) && (c.no_prep === true || (c.no_prep == null && catOf(c)?.no_prep)));
