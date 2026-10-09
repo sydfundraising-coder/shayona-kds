@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0f1720">
 <title>Shayona Cafe · Track my order</title>
+<link rel="manifest" href="/track.webmanifest">
+<link rel="apple-touch-icon" href="/icons/track-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shayona">
 <style>
   :root{--bg:#f6f4ef;--card:#ffffff;--text:#1d1a16;--muted:#6f675c;--line:#e7e1d6;--accent:#e8791a;--accent-ink:#ffffff;--ok:#15995c;--ok-bg:#e7f6ee;--warn:#c47a10;--warn-bg:#fdf3e1;color-scheme:light}
   @media (prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#18222e;--text:#eef2f6;--muted:#9aa6b5;--line:#283545;--accent:#f0913a;--accent-ink:#1d1200;--ok:#3ccf8e;--ok-bg:#0f2a20;--warn:#f2a43a;--warn-bg:#2b2112;color-scheme:dark}}
@@ -45,6 +50,11 @@
   .ready .t{font-size:2.1em;font-weight:900}
   .ready .s{font-size:1.15em;opacity:.95}
   .ready .btn{background:#fff;color:#0d5c37;max-width:360px;font-size:1.3em}
+  .push{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:2px solid var(--accent);border-radius:14px;padding:12px 14px;font-size:.92em;line-height:1.4}
+  .push.on{border-color:var(--ok);background:var(--ok-bg)}
+  .push>div>b:first-child{display:block}
+  .push .btn{margin-top:10px;padding:12px;font-size:1.05em}
+  .push ol{margin:6px 0 0;padding-left:20px}
   .hidden{display:none!important}
   footer{margin-top:auto;text-align:center;color:var(--muted);font-size:.8em}
   /* printable sign */
@@ -60,10 +70,10 @@
 </head>
 <body>
 <div id="root"></div>
-<script src="config.js?v=20261005p"></script>
-<script src="js/vendor/supabase.js?v=20261005p"></script>
-<script src="js/vendor/qrcode.js?v=20261005p"></script>
-<script src="js/auto-update.js?v=20261005p"></script>
+<script src="config.js?v=20261010a"></script>
+<script src="js/vendor/supabase.js?v=20261010a"></script>
+<script src="js/vendor/qrcode.js?v=20261010a"></script>
+<script src="js/auto-update.js?v=20261010a"></script>
 <script>
 (function () {
   const root = document.getElementById('root');
@@ -77,7 +87,7 @@
     root.innerHTML = `<div class="poster">
       <h1>Shayona Cafe</h1><h2>Get a buzz on your phone when your order is ready</h2>
       <div class="qr">${qrSvg(trackUrl)}</div>
-      <ol><li>Scan this code with your phone camera</li><li>Type your <b>order number</b></li><li>Keep the page open — your phone will <b>ring &amp; vibrate</b> when it's ready</li></ol>
+      <ol><li>Scan this code with your phone camera</li><li>Type your <b>order number</b></li><li>Tap <b>Turn on alerts</b> — your phone will <b>ring &amp; vibrate</b> when it's ready, even with the screen off</li></ol>
       <div class="url">No app or sign-up needed · ${esc(trackUrl.replace(/^https?:\/\//, ''))}</div>
       <p class="noprint" style="margin-top:28px"><button class="btn" style="max-width:280px;margin:0 auto" onclick="print()">🖨 Print this sign</button></p></div>`;
     return;
@@ -115,6 +125,7 @@
   async function keepAwake() { try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch (_) {} }
   function notify(title, body) {
     try {
+      const st0 = load(); if (live && st0 && pushOn(st0.no)) return;            // the push notification covers it
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       if (navigator.serviceWorker && navigator.serviceWorker.controller) return navigator.serviceWorker.ready.then((r) => r.showNotification(title, { body, vibrate: [400, 150, 400, 150, 800], tag: 'order', renotify: true, requireInteraction: true }));
       new Notification(title, { body, tag: 'order', requireInteraction: true });
@@ -125,6 +136,59 @@
     ring(); alarm = setInterval(ring, 2600);
   }
   function stopAlarm() { clearInterval(alarm); alarm = null; buzz(0); }
+
+  // ---------------------------------------------------------------- Web Push: alerts with the screen off
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const pushCapable = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext;
+  const pushFn = live ? String(cfg.supabaseUrl).replace(/\/+$/, '') + '/functions/v1/push-notify' : null;
+  const pushKey = (no) => 'push:' + today() + ':' + no;
+  const pushOn = (no) => { try { return localStorage.getItem(pushKey(no)) === '1'; } catch (_) { return false; } };
+  let swReg = null, pushBusy = false, pushErr = '';
+  async function sw() {
+    if (!pushCapable) return null;
+    if (!swReg) swReg = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready; return swReg;
+  }
+  const keyBytes = (k) => { const s = atob(k.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((k.length + 3) % 4)); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+  // switch alerts on for this order (asks permission if needed; call from a tap the first time)
+  async function enablePush(no, fromTap) {
+    if (!pushCapable || pushBusy) return false;
+    if (Notification.permission === 'denied') { pushErr = 'denied'; return false; }
+    if (Notification.permission === 'default') {
+      if (!fromTap) return false;
+      const p = await Notification.requestPermission();
+      if (p !== 'granted') { pushErr = p === 'denied' ? 'denied' : ''; return false; }
+    }
+    pushBusy = true; pushErr = '';
+    try {
+      const reg = await sw();
+      if (!live) { localStorage.setItem(pushKey(no), '1'); return true; }        // demo: pretend
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const r = await fetch(pushFn + '?key=1'); if (!r.ok) throw new Error('setup');
+        const { publicKey } = await r.json();
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+      }
+      const { data, error } = await sb.rpc('kds_push_subscribe', { p_no: no, p_sub: sub.toJSON() });
+      if (error || !data || !data.ok) throw new Error((data && data.error) || (error && error.message) || 'failed');
+      try { localStorage.setItem(pushKey(no), '1'); } catch (_) {}
+      return true;
+    } catch (e) { pushErr = /not found/.test(e.message) ? 'notyet' : 'failed'; return false; }
+    finally { pushBusy = false; }
+  }
+  async function disablePush() {
+    try { const reg = pushCapable && await navigator.serviceWorker.getRegistration('/'); const sub = reg && await reg.pushManager.getSubscription();
+      if (sub && sb) await sb.rpc('kds_push_unsubscribe', { p_endpoint: sub.endpoint }); } catch (_) {}
+  }
+  // the box under the order: what the customer needs to do so their phone alerts them with the screen off
+  function pushBox(no) {
+    if (pushOn(no)) return `<div class="push on"><span style="font-size:1.4em">✅</span><div><b>Alerts are on — you can lock your phone</b>We'll send a notification with sound and vibration when your order is ready. Keep your volume up.</div></div>`;
+    if (isIOS && !standalone) return `<div class="push"><span style="font-size:1.4em">📲</span><div><b>Want an alert even with your screen off?</b>On iPhone:<ol><li>Tap <b>Share</b> <span aria-hidden="true">⬆︎</span> at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>Shayona</b> from your home screen and tap <b>Turn on alerts</b></li></ol><span style="color:var(--muted)">Or just keep this page open — it will ring here.</span></div></div>`;
+    if (!pushCapable) return `<div class="keep"><span style="font-size:1.4em">📱</span><div><b>Keep this page open</b>Your screen will stay on. Turn your phone's volume up — it will ring and vibrate when your order is ready.</div></div>`;
+    if (pushErr === 'denied' || Notification.permission === 'denied') return `<div class="keep"><span style="font-size:1.4em">🔕</span><div><b>Notifications are blocked for this site</b>Keep this page open and it will ring here — or allow notifications for this site in your phone's settings.</div></div>`;
+    return `<div class="push"><span style="font-size:1.4em">🔔</span><div><b>Get an alert even with your screen off</b>Turn on alerts and you can lock your phone — we'll notify you when your order is ready.${pushErr === 'failed' ? '<br><span style="color:var(--warn)">Couldn\'t turn alerts on just now — try again, or keep this page open.</span>' : ''}<button class="btn" id="pushon" type="button">🔔 Turn on alerts</button></div></div>`;
+  }
 
   // ---------------------------------------------------------------- state
   const today = () => new Date().toDateString();
@@ -141,13 +205,13 @@
         <input id="no" inputmode="numeric" autocomplete="off" placeholder="e.g. 105" maxlength="10" required value="${esc(q.get('o') || '')}">
         ${msg ? `<div class="warnmsg" style="margin-top:12px">${msg}</div>` : ''}
         <button class="btn" type="submit">🔔 Notify me when it's ready</button></form>
-        <div class="hint">Your order number is on your receipt, or ask at the counter.<br>No app or sign-up needed — <b>just keep this page open</b> and your phone will ring and vibrate when your order is ready.</div></div>
+        <div class="hint">Your order number is on your receipt, or ask at the counter.<br>No app or sign-up needed. Allow notifications and your phone will alert you <b>even with the screen off</b> — or just keep this page open and it will ring here.</div></div>
       <footer>Shayona Cafe · order tracker</footer></div>`;
     const f = document.getElementById('f');
     f.onsubmit = (e) => {
       e.preventDefault(); const no = document.getElementById('no').value.trim().replace(/^#/, ''); if (!no) return;
       unlock(); tone([880, 1175], .15, .6);                          // confirms sound works (and unlocks it)
-      if ('Notification' in window && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (_) {} }
+      if (pushCapable && Notification.permission === 'default' && (!isIOS || standalone)) { try { Notification.requestPermission().then(() => track()); } catch (_) {} }
       save(no); demoStart = Date.now(); notFoundSince = null; keepAwake(); track();
     };
   }
@@ -165,11 +229,13 @@
         ${d.status !== 'ready' && d.status !== 'completed' && can > 0 ? `<div class="part">Part of your order is ready — you can collect ${can} item${can > 1 ? 's' : ''} now</div>` : ''}
         <ul class="items">${(d.items || []).map((i) => { const r = Math.min(i.qty, i.ready || 0), c = i.collected || 0;
           return `<li class="${r >= i.qty ? 'done' : ''}"><span>${i.qty}× ${esc(i.name)}</span><span>${c >= i.qty ? 'collected' : r >= i.qty ? '✓ ready' : r > 0 ? `${r} of ${i.qty} ready` : 'preparing'}</span></li>`; }).join('')}</ul></div>
-      ${d.status !== 'completed' && d.status !== 'cancelled' ? `<div class="keep"><span style="font-size:1.4em">📱</span><div><b>Keep this page open</b>Your screen will stay on. Turn your phone's volume up — it will ring and vibrate when your order is ready.</div></div>` : ''}
+      ${d.status !== 'completed' && d.status !== 'cancelled' ? pushBox(no) : ''}
       <button class="btn ghost" id="chg">Track a different order</button>
       <footer>Updates automatically</footer></div>
       <div class="ready hidden" id="rdy"><div class="big">🔔</div><div class="t" id="rdy-t">Your order #${esc(d.order_no || no)} is READY</div><div class="s" id="rdy-s">Please collect it from the counter</div><button class="btn" id="got">Got it 👍</button></div>`;
-    document.getElementById('chg').onclick = () => { try { localStorage.removeItem('track'); } catch (_) {} askScreen(); };
+    document.getElementById('chg').onclick = () => { disablePush(); try { localStorage.removeItem('track'); localStorage.removeItem(pushKey(no)); } catch (_) {} askScreen(); };
+    const pb = document.getElementById('pushon');
+    if (pb) pb.onclick = async () => { unlock(); pb.disabled = true; pb.textContent = 'Turning on…'; await enablePush(no, true); trackScreen(no, d); };
     document.getElementById('got').onclick = () => { stopAlarm(); patch({ ackAt: Date.now() }); document.getElementById('rdy').classList.add('hidden'); };
   }
 
@@ -189,6 +255,8 @@
       timer = setTimeout(track, 5000); return;
     }
     notFoundSince = null;
+    try { if (q.get('o') !== st.no) history.replaceState(null, '', location.pathname + '?o=' + encodeURIComponent(st.no)); } catch (_) {}
+    if (d.status !== 'completed' && d.status !== 'cancelled' && pushCapable && !pushOn(st.no) && Notification.permission === 'granted' && !pushBusy && pushErr !== 'failed') await enablePush(st.no, false);
     trackScreen(st.no, d);
     const can = d.collectable || 0;
     // ready: ring until "Got it"; if still not collected, ring again every few minutes
@@ -212,6 +280,7 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); if (load()) track(); } });
   ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { capture: true, passive: true }));
   window.addEventListener('online', () => { if (load()) track(); });
+  if (pushCapable) { navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'kds-push' && load()) track(); }); if (Notification.permission === 'granted') sw().catch(() => {}); }
   if (q.get('o') && (!load() || load().no !== q.get('o'))) save(q.get('o'));
   load() ? (keepAwake(), track()) : askScreen();
 })();

@@ -138,6 +138,12 @@
         if (error) throw error;
         this.role = data?.role || 'staff';
         try { localStorage.setItem('kds.role', this.role); } catch (_) {}
+        // admins: tell the database where the customer push-alert function lives (SQL 018); quiet if not set up yet
+        if (this.role === 'admin' && !this._pushSet) {
+          this._pushSet = true;
+          const url = String(window.KDS_CONFIG?.supabaseUrl || '').replace(/\/+$/, '') + '/functions/v1/push-notify';
+          this.sb.rpc('kds_push_setup', { p_url: url }).then(() => {}, () => {});
+        }
       } catch (_) {                                  // offline: use the role we saw last time
         try { this.role = localStorage.getItem('kds.role') || 'staff'; } catch (__) { this.role = 'staff'; }
       }
