@@ -541,3 +541,26 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .pboard .num.uc small{color:#fff!important}
 @keyframes ucflash{0%,100%{opacity:1}50%{opacity:.55}}
 .btn.bump1{min-height:52px;padding:10px 18px;font-size:1.05em;font-weight:900}
+
+/* ---- easier to read: bold quantity badges and bigger item names (all screens) ---- */
+.qty{background:var(--text);color:var(--bg);border:0;font-size:1.45em;min-width:2.05em;height:2.05em;border-radius:10px;font-weight:900;letter-spacing:-.02em;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.qty small{color:inherit;opacity:.75}
+.qty.multi{background:var(--accent);color:#1b1100}                       /* 2 or more: orange so it can't be missed */
+.qty.qtap{border:3px dashed rgba(0,0,0,.45);min-width:2.35em;height:2.35em}
+.qty.qtap em{color:#1b1100;opacity:.85;font-size:.42em}
+.item.done .qty,.item.ready .qty{background:var(--ok);color:#06210f}
+.item.waiting.pending .qty{opacity:.75}
+.iname{font-size:1.2em;font-weight:800;line-height:1.18;color:var(--text)}
+.iname .ivar{font-weight:700;color:var(--muted)}
+/* compact cards (front counter "Preparing", window "Still in the kitchen") */
+.pc-it{align-items:center}
+.pc-q{display:inline-flex;align-items:center;justify-content:center;min-width:2.3em;height:1.7em;padding:0 .3em;border-radius:8px;background:var(--text);color:var(--bg);font-size:1.15em;font-weight:900;flex:none}
+.pc-q.multi{background:var(--accent);color:#1b1100}
+.pc-n{font-size:1.14em;font-weight:800;color:var(--text)}
+/* item summary and make line headers */
+.sgroup .shead .n,.mhead .n{font-size:2.3em;line-height:1}
+.sgroup .shead .nm,.mhead .nm{font-size:1.35em;font-weight:900}
+.qty.qtap.cq,.qty.mq{font-size:1.15em}
+.iname{word-break:normal;overflow-wrap:anywhere}                          /* wrap between words, not mid-word */
+.qty.qtap{background:var(--accent);color:#1b1100}                         /* tappable = more than one */
+.item.done .qty.qtap,.item.ready .qty.qtap{background:var(--ok);color:#06210f}

@@ -175,7 +175,7 @@
     const multi = units > 1;
     const bumpAttrs = (n) => `data-act="bump" data-item="${it.id}" data-stage="${m.tap.stage}" data-n="${n}" ${m.tap.force ? 'data-force="1"' : ''}`;
     return `<li class="item ${tap ? m.cls : m.cls.replace('tap', '')} ${isNew(it.id) ? 'is-new' : ''}" ${tap ? bumpAttrs(multi ? 'all' : 1) : ''}>
-      <div class="qty${multi ? ' qtap' : ''}" ${multi ? `${bumpAttrs(1)} title="Tap to clear 1"` : ''}><span>${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</span>${multi ? '<em>−1</em>' : ''}</div>
+      <div class="qty${multi ? ' qtap' : ''}${m.rem > 1 ? ' multi' : ''}" ${multi ? `${bumpAttrs(1)} title="Tap to clear 1"` : ''}><span>${m.rem > 0 ? m.rem : '✓'}${m.rem > 0 && m.rem !== m.total ? `<small>/${m.total}</small>` : ''}</span>${multi ? '<em>−1</em>' : ''}</div>
       <div><div class="iname">${isNew(it.id) ? '<span class="newtag">NEW</span>' : ''}${name}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}${m.status ? `<div class="istatus">${m.status}</div>` : ''}</div>
       <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}${kind === 'station' ? dots(m.doneCount, m.total) : ''}</div>
     </li>`;
@@ -276,7 +276,7 @@
       const ready = i.qty_window - i.qty_front, rem = i.qty - i.qty_front;
       if (rem <= 0) return '';
       const st = ready > 0 && ready >= rem ? '<span class="pc-ok">✓ ready</span>' : ready > 0 ? `<span class="pc-ok">✓ ${ready} ready</span> · ${whereIs(i)}` : whereIs(i);
-      return `<div class="pc-it"><span class="pc-q">${rem}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}<span class="pc-s">${st}</span></span></div>`;
+      return `<div class="pc-it"><span class="pc-q${rem > 1 ? ' multi' : ''}">${rem}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}<span class="pc-s">${st}</span></span></div>`;
     };
     return `<div class="pcard ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}
@@ -296,7 +296,7 @@
   // front counter: items still to come, same size as ready items (faded, not tappable)
   function pendingRows(o, items) {
     return items.filter((it) => it.qty_window < it.qty).map((it) => `<li class="item waiting pending">
-      <div class="qty"><span>${it.qty - it.qty_window}</span></div>
+      <div class="qty${it.qty - it.qty_window > 1 ? ' multi' : ''}"><span>${it.qty - it.qty_window}</span></div>
       <div><div class="iname">${esc(it.item_name)}${it.variation_name ? ` <span class="ivar">· ${esc(it.variation_name)}</span>` : ''}</div>${modsHtml(it)}${it.note ? `<div class="inote">“${esc(it.note)}”</div>` : ''}<div class="istatus">${whereIs(it)}</div></div>
       <div class="iright">${showPack(it) ? `<span class="pack ${it.pack === 'BOX' ? 'BOX' : 'PLATE'}">${packLabel(it.pack)}</span>` : ''}</div></li>`).join('');
   }
@@ -430,7 +430,7 @@
         <span class="conn ${st.connected ? '' : 'off'}" title="Live connection"></span>
         <span class="clock"></span>
         <button class="iconbtn" data-top="recall" title="Recall a bumped item">↺ Recall</button>
-        ${kind !== 'front' ? '<button class="iconbtn" data-top="avail" title="Item availability">86</button>' : ''}
+        ${kind !== 'front' ? '<button class="iconbtn" data-top="avail" title="Item availability — switch items on / sold out">Sold out</button>' : ''}
         <button class="iconbtn" data-top="settings" title="Layout & display">⚙</button>
         <button class="iconbtn" data-top="fs" title="Full screen">⛶</button>
       </div>
@@ -582,7 +582,7 @@
     return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
       <div class="pgrid coming-grid">${list.map(({ o, its }) => `<div class="pcard ${o.is_online ? 'online' : ''} ${K.ageClass(o.received_at, ctx.th) ? 'st-' + K.ageClass(o.received_at, ctx.th) : ''}">
         <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}</div>
-        ${its.map((i) => `<div class="pc-it"><span class="pc-q">${i.qty - i.qty_prep}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}${modsHtml(i)}<span class="pc-s">${tag(i)}</span></span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
+        ${its.map((i) => `<div class="pc-it"><span class="pc-q${i.qty - i.qty_prep > 1 ? ' multi' : ''}">${i.qty - i.qty_prep}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}${modsHtml(i)}<span class="pc-s">${tag(i)}</span></span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
   function routeOf(c) {
