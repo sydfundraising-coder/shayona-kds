@@ -446,7 +446,14 @@
       if (a === 'recall') recallDrawer(ctx);
       if (a === 'avail') location.hash = `#/availability${station ? '?station=' + station.id : ''}`;
     };
+    let down = null, lastScroll = 0;
+    const wrapEl = K.$('#wrap');
+    wrapEl.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true });
+    window.addEventListener('scroll', () => { lastScroll = Date.now(); }, { passive: true, capture: true });
     K.$('#wrap').onclick = (e) => {
+      // ignore taps that were really a scroll: finger moved, or the screen was still scrolling
+      const moved = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12;
+      if (moved || Date.now() - lastScroll < 350) { if (e.target.closest('[data-act]')) { e.stopPropagation(); return; } }
       const ft = e.target.closest('[data-ftab]');
       if (ft) { p.ftab = ft.dataset.ftab; K.savePrefs(key, p); window.scrollTo(0, 0); drawBoard(ctx); return; }
       onAction(e, ctx);
@@ -544,9 +551,12 @@
       const body = tab === 'prep'
         ? `<div class="col prep one"><div class="pgrid">${prepRows.map((m) => prepCard(m, ctx)).join('') || '<div class="muted" style="padding:16px">Nothing in the kitchen</div>'}</div></div>`
         : `<div class="col ready one"><div class="colkey-row"><small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small></div><div class="stack">
-            ${late.length ? `<div class="uc-head">⚠ Not collected — ${ucMin()}+ min · call again / buzz <span class="pill badge-cancel">${late.length}</span></div>${late.map((m) => ticket(m, kind, ctx)).join('')}${rest.length ? '<div class="uc-sep">Ready</div>' : ''}` : ''}
+            ${late.length ? `<div class="uc-head">⚠ Not collected — ${ucMin()}+ min · call again / buzz <span class="pill badge-cancel">${late.length}</span></div>${late.map((m) => ticket(m, kind, ctx)).join('')}` : ''}
             ${rest.map((m) => ticket(m, kind, ctx)).join('') || (late.length ? '' : '<div class="muted" style="padding:16px">Nothing ready right now</div>')}</div></div>`;
-      html = `<div class="ftab-wrap" style="font-size:${fs}">${tabs}${body}</div>`;
+      // the more orders on the open tab, the smaller each card, so more fit on the screen
+      const n = tab === 'prep' ? prepRows.length : rows.length;
+      const dens = n <= 4 ? 1 : n <= 8 ? 2 : n <= 14 ? 3 : 4;
+      html = `<div class="ftab-wrap dens-${dens}" style="font-size:${fs}">${tabs}${body}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
     } else if (p.layout === 'summary' && kind === 'station') {

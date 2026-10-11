@@ -583,3 +583,31 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .colkey-row{display:flex;justify-content:flex-end;margin:-2px 2px 8px}
 .iname{overflow-wrap:break-word}
 .col.one .stack{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+
+/* ---- front counter: cards shrink as more orders wait, so more fit on screen ---- */
+.ftab-wrap.dens-2 .col.one .stack,.ftab-wrap.dens-2 .col.prep.one .pgrid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.ftab-wrap.dens-2 .ticket,.ftab-wrap.dens-2 .pcard{font-size:.9em}
+.ftab-wrap.dens-3 .col.one .stack,.ftab-wrap.dens-3 .col.prep.one .pgrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.ftab-wrap.dens-3 .ticket,.ftab-wrap.dens-3 .pcard{font-size:.8em}
+.ftab-wrap.dens-4 .col.one .stack,.ftab-wrap.dens-4 .col.prep.one .pgrid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:7px}
+.ftab-wrap.dens-4 .ticket,.ftab-wrap.dens-4 .pcard{font-size:.72em}
+.ftab-wrap:not(.dens-1) .item{padding:5px 6px;gap:6px}
+.ftab-wrap:not(.dens-1) .t-items{gap:4px}
+.ftab-wrap:not(.dens-1) .istatus{display:none}                 /* "Ready to hand over" — the green box already says it */
+.ftab-wrap:not(.dens-1) .t-head{padding:6px 8px}
+.ftab-wrap:not(.dens-1) .t-foot{padding:6px}
+.ftab-wrap:not(.dens-1) .t-foot .btn{min-height:40px;padding:6px}
+.ftab-wrap.dens-3 .t-sub .pill,.ftab-wrap.dens-4 .t-sub .pill{font-size:.75em;padding:2px 7px}
+.ftab-wrap.dens-4 .pack{font-size:.75em}
+.ftab-wrap.dens-3 .pc-s,.ftab-wrap.dens-4 .pc-s{font-size:.7em}
+
+/* dense cards: pack label under the name (so names don't wrap), smaller boxes */
+.ftab-wrap:not(.dens-1) .item{grid-template-columns:auto 1fr}
+.ftab-wrap:not(.dens-1) .item .iright{grid-column:2;justify-self:start;display:flex;gap:4px;margin-top:-2px}
+.ftab-wrap:not(.dens-1) .item .iright:empty{display:none}
+.ftab-wrap:not(.dens-1) .newtag{font-size:.65em;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.ftab-wrap.dens-3 .qty,.ftab-wrap.dens-4 .qty{font-size:1.25em}
+.ftab-wrap.dens-3 .iname{font-size:1.08em}
+.ftab-wrap.dens-4 .iname{font-size:1em}
+.ftab-wrap:not(.dens-1) .uc-head{margin:0;padding:2px 2px 0;font-size:.9em}
+.ftab-wrap:not(.dens-1) .uc-badge{padding:3px 8px;font-size:.85em}
