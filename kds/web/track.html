@@ -70,10 +70,10 @@
 </head>
 <body>
 <div id="root"></div>
-<script src="config.js?v=20261010a"></script>
-<script src="js/vendor/supabase.js?v=20261010a"></script>
-<script src="js/vendor/qrcode.js?v=20261010a"></script>
-<script src="js/auto-update.js?v=20261010a"></script>
+<script src="config.js?v=20261011a"></script>
+<script src="js/vendor/supabase.js?v=20261011a"></script>
+<script src="js/vendor/qrcode.js?v=20261011a"></script>
+<script src="js/auto-update.js?v=20261011a"></script>
 <script>
 (function () {
   const root = document.getElementById('root');
@@ -142,9 +142,13 @@
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const pushCapable = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext;
   const pushFn = live ? String(cfg.supabaseUrl).replace(/\/+$/, '') + '/functions/v1/push-notify' : null;
+  const fnHeaders = live ? { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } : {};
   const pushKey = (no) => 'push:' + today() + ':' + no;
   const pushOn = (no) => { try { return localStorage.getItem(pushKey(no)) === '1'; } catch (_) { return false; } };
   let swReg = null, pushBusy = false, pushErr = '';
+  let testUntil = 0, testText = '';                 // test alert: survives the page refreshing itself
+  const testMsg = () => { const left = Math.ceil((testUntil - Date.now()) / 1000); return left > 0 ? `<b>Lock your phone now</b> — a test alert will arrive in ${left} second${left > 1 ? 's' : ''}.` : testText; };
+  setInterval(() => { const el = document.getElementById('pushtest-msg'); if (el && testUntil) el.innerHTML = testMsg(); }, 500);
   async function sw() {
     if (!pushCapable) return null;
     if (!swReg) swReg = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
@@ -166,7 +170,7 @@
       if (!live) { localStorage.setItem(pushKey(no), '1'); return true; }        // demo: pretend
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
-        const r = await fetch(pushFn + '?key=1'); if (!r.ok) throw new Error('setup');
+        const r = await fetch(pushFn + '?key=1', { headers: fnHeaders }); if (!r.ok) throw new Error('setup');
         const { publicKey } = await r.json();
         sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
       }
@@ -183,7 +187,7 @@
   }
   // the box under the order: what the customer needs to do so their phone alerts them with the screen off
   function pushBox(no) {
-    if (pushOn(no)) return `<div class="push on"><span style="font-size:1.4em">✅</span><div><b>Alerts are on — you can lock your phone</b>We'll send a notification with sound and vibration when your order is ready. Keep your volume up.</div></div>`;
+    if (pushOn(no)) return `<div class="push on"><span style="font-size:1.4em">✅</span><div><b>Alerts are on — you can lock your phone</b>We'll send a notification with sound and vibration when your order is ready. Keep your volume up and your phone off silent / Do Not Disturb.<button class="btn ghost" id="pushtest" type="button" style="margin-top:10px">Send me a test alert</button><div id="pushtest-msg" class="hint" style="margin-top:6px">${testMsg()}</div></div></div>`;
     if (isIOS && !standalone) return `<div class="push"><span style="font-size:1.4em">📲</span><div><b>Want an alert even with your screen off?</b>On iPhone:<ol><li>Tap <b>Share</b> <span aria-hidden="true">⬆︎</span> at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>Shayona</b> from your home screen and tap <b>Turn on alerts</b></li></ol><span style="color:var(--muted)">Or just keep this page open — it will ring here.</span></div></div>`;
     if (!pushCapable) return `<div class="keep"><span style="font-size:1.4em">📱</span><div><b>Keep this page open</b>Your screen will stay on. Turn your phone's volume up — it will ring and vibrate when your order is ready.</div></div>`;
     if (pushErr === 'denied' || Notification.permission === 'denied') return `<div class="keep"><span style="font-size:1.4em">🔕</span><div><b>Notifications are blocked for this site</b>Keep this page open and it will ring here — or allow notifications for this site in your phone's settings.</div></div>`;
@@ -234,6 +238,21 @@
       <footer>Updates automatically</footer></div>
       <div class="ready hidden" id="rdy"><div class="big">🔔</div><div class="t" id="rdy-t">Your order #${esc(d.order_no || no)} is READY</div><div class="s" id="rdy-s">Please collect it from the counter</div><button class="btn" id="got">Got it 👍</button></div>`;
     document.getElementById('chg').onclick = () => { disablePush(); try { localStorage.removeItem('track'); localStorage.removeItem(pushKey(no)); } catch (_) {} askScreen(); };
+    const pt = document.getElementById('pushtest');
+    if (pt) { pt.disabled = Date.now() < testUntil + 5000; pt.onclick = async () => {
+      pt.disabled = true; testUntil = Date.now() + 10000; testText = 'Sending…'; document.getElementById('pushtest-msg').innerHTML = testMsg();
+      const fail = 'Couldn\'t send a test right now — please keep this page open instead.';
+      try {
+        if (!live) { setTimeout(async () => { testText = '✅ Test sent.'; (await sw()).showNotification('✅ Test alert — Shayona Cafe', { body: 'This is how we\'ll tell you your order is ready.', vibrate: [500, 150, 500] }); }, 10000); return; }
+        const reg = await sw(), sub = await reg.pushManager.getSubscription();
+        if (!sub) throw new Error('nosub');
+        const r = await fetch(pushFn, { method: 'POST', headers: { ...fnHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ test: sub.endpoint, delay: 10 }) });
+        const j = await r.json().catch(() => ({}));
+        testText = j.ok ? '✅ Test sent. Nothing arrived? Check notifications are allowed for your browser in your phone\'s settings, and that the phone isn\'t on silent or Do Not Disturb.' : fail;
+        if (r.status === 404) { try { localStorage.removeItem(pushKey(no)); } catch (_) {} }
+      } catch (_) { testText = fail; }
+      testUntil = Math.min(testUntil, Date.now()); const el = document.getElementById('pushtest-msg'); if (el) el.innerHTML = testMsg();
+    }; }
     const pb = document.getElementById('pushon');
     if (pb) pb.onclick = async () => { unlock(); pb.disabled = true; pb.textContent = 'Turning on…'; await enablePush(no, true); trackScreen(no, d); };
     document.getElementById('got').onclick = () => { stopAlarm(); patch({ ackAt: Date.now() }); document.getElementById('rdy').classList.add('hidden'); };

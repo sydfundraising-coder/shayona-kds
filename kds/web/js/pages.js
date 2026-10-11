@@ -110,7 +110,32 @@
       ${row(open.length && noStation.length === its.length ? false : noStation.length ? 'warn' : true, `${noStation.length} of ${its.length} items on open orders came in with no station`,
         noStation.length ? 'These were routed before a station was set, so they went straight to the front counter.' : 'All open items have a station (or are No prep).',
         noStation.length ? 'After fixing routing above, run <b>013_reapply_routing_open_orders.sql</b> in Supabase → SQL Editor to move today’s unstarted items back to their stations.' : '')}
-      ${row(true, 'Where open items are now', `${atStation.length} at kitchen stations · ${atWindow.length} at the order window · ${itSkip.length} set to skip the window`)}`;
+      ${row(true, 'Where open items are now', `${atStation.length} at kitchen stations · ${atWindow.length} at the order window · ${itSkip.length} set to skip the window`)}
+      <h2>Customer phone alerts</h2><div id="hc-push"><div class="muted">Checking…</div></div>`;
+    pushHealth(row);
+  }
+  async function pushHealth(row) {
+    const box = K.$('#hc-push'); if (!box) return;
+    if (api.mode !== 'live') { box.innerHTML = row('warn', 'Demo mode', 'Phone alerts only work on the live site.'); return; }
+    const { data: h, error } = await api.sb.rpc('kds_push_health');
+    if (!K.$('#hc-push')) return;
+    if (error) { box.innerHTML = row(false, 'Phone alerts are not set up', /kds_push_health|function/.test(error.message || '') ? 'The database part is missing.' : esc(error.message), 'Run <b>018_push_notifications.sql</b> and then <b>019_push_fixes.sql</b> in Supabase → SQL Editor, then reload this page.'); return; }
+    const s = h.status || {}, ago = s.at ? Math.round((Date.now() - new Date(s.at)) / 60000) : null;
+    let fnOk = null, fnMsg = '';
+    if (h.url) {
+      try { const r = await fetch(h.url + '?key=1', { headers: { apikey: window.KDS_CONFIG.supabaseAnonKey, Authorization: 'Bearer ' + window.KDS_CONFIG.supabaseAnonKey } });
+        fnOk = r.ok; fnMsg = r.ok ? 'The push-notify function answers.' : r.status === 404 ? 'No function called push-notify was found (404).' : `The function answered with an error (${r.status}).`; }
+      catch (_) { fnOk = false; fnMsg = 'Could not reach the push-notify function.'; }
+    }
+    box.innerHTML = [
+      row(h.url ? true : false, 'Function address saved', h.url ? esc(h.url) : 'Not saved yet.', h.url ? '' : 'Reload the KDS while signed in as admin (this saves it), then open this page again.'),
+      h.url ? row(fnOk ? true : false, 'push-notify function', fnMsg, fnOk ? '' : 'In Supabase → Edge Functions, create <b>push-notify</b> from <b>dashboard-paste/push-notify.ts</b> and deploy it. Turn <b>Verify JWT</b> off.') : '',
+      row(h.timer ? true : false, 'Timer', h.timer ? 'Running — checks every few seconds while someone is waiting.' : 'Not running.', h.timer ? '' : 'Run <b>018_push_notifications.sql</b> again (it starts the timer).'),
+      row(h.has_key ? true : 'warn', 'Access key saved', h.has_key ? 'Yes' : 'Not yet — sign in again as admin.'),
+      row(true, 'Phones signed up today', `${h.subs_today} phone(s) · ${h.waiting} still waiting for an alert`),
+      row(s.error || s.failed ? false : s.at ? true : 'warn', 'Last alert sent', s.at ? `${ago < 1 ? 'just now' : ago + ' min ago'} · ${s.test ? 'test alert' : `${s.sent || 0} sent, ${s.failed || 0} failed`}${s.lastStatus ? ` · push service answered ${s.lastStatus}` : ''}${s.error ? ` · error: ${esc(s.error)}` : ''}${s.lastError ? ` · ${esc(s.lastError)}` : ''}` : 'No alerts sent yet.',
+        s.error || s.failed ? 'A 401/403 answer usually means the signing keys changed — delete the row in table <b>push_keys</b> and ask customers to turn alerts on again.' : ''),
+    ].join('');
   }
   const refreshAdmin = async () => { await K.loadConfig(); K.render(); };
 

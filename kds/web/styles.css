@@ -564,3 +564,22 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .iname{word-break:normal;overflow-wrap:anywhere}                          /* wrap between words, not mid-word */
 .qty.qtap{background:var(--accent);color:#1b1100}                         /* tappable = more than one */
 .item.done .qty.qtap,.item.ready .qty.qtap{background:var(--ok);color:#06210f}
+
+/* ---- front counter: two tabs (Now serving / Preparing), each full screen ---- */
+.ftab-wrap{padding:10px 12px 16px}
+.ftabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:sticky;top:0;z-index:5;background:var(--bg);padding:2px 0 10px}
+.ftabs button{font:inherit;font-size:1.35em;font-weight:900;padding:14px 16px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.ftabs button b{font-size:1.15em;color:inherit}
+.ftabs .ft-serve.on{background:var(--ok);border-color:var(--ok);color:#06210f}
+.ftabs .ft-prep.on{background:var(--warn);border-color:var(--warn);color:#1f1300}
+.ftabs .ft-late{font-size:.62em;background:var(--late);color:#fff;border-radius:999px;padding:4px 10px}
+.ftabs .ft-new{font-size:.62em;background:var(--ok);color:#06210f;border-radius:999px;padding:4px 10px}
+.ftabs .ft-serve.flash{animation:ftflash 1s ease-in-out infinite;border-color:var(--ok);color:var(--text)}
+@keyframes ftflash{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 5px var(--ok)}}
+.col.one{background:transparent;border:0;padding:0}
+.col.one .stack{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;align-items:start}
+.col.one .uc-head,.col.one .uc-sep{grid-column:1/-1}
+.col.prep.one .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;align-items:start;max-height:none;overflow:visible}
+.colkey-row{display:flex;justify-content:flex-end;margin:-2px 2px 8px}
+.iname{overflow-wrap:break-word}
+.col.one .stack{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}

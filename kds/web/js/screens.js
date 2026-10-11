@@ -446,7 +446,11 @@
       if (a === 'recall') recallDrawer(ctx);
       if (a === 'avail') location.hash = `#/availability${station ? '?station=' + station.id : ''}`;
     };
-    K.$('#wrap').onclick = (e) => onAction(e, ctx);
+    K.$('#wrap').onclick = (e) => {
+      const ft = e.target.closest('[data-ftab]');
+      if (ft) { p.ftab = ft.dataset.ftab; K.savePrefs(key, p); window.scrollTo(0, 0); drawBoard(ctx); return; }
+      onAction(e, ctx);
+    };
     startOverlay(ctx);
     drawBoard(ctx);
   }
@@ -524,17 +528,25 @@
     let html;
     if (!st.loaded) html = '<div class="board"><div class="empty"><div class="big">⏳</div>Loading orders…</div></div>';
     else if (kind === 'front' && p.layout === 'columns') {
-      const pcol = (title, rows) => `<div class="col prep"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="pgrid">${rows.map((m) => prepCard(m, ctx)).join('') || '<div class="muted" style="padding:10px">Nothing in the kitchen</div>'}</div></div>`;
-      const col = (title, cls, rows) => `<div class="col ${cls}"><h3>${title}<span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">${rows.map((m) => ticket(m, kind, ctx)).join('') || '<div class="muted" style="padding:10px">—</div>'}</div></div>`;
-      html = `<div class="cols two" style="font-size:${p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em'}">
-        ${pcol('Preparing', model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable)))}
-        ${(() => {
-          const rows = model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable));
-          const late = rows.filter((m) => uncollected(m.o)).sort((a, b) => uncollected(b.o) - uncollected(a.o)), rest = rows.filter((m) => !uncollected(m.o));
-          return `<div class="col ready"><h3>Now serving <small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small><span class="pill badge-walkin">${rows.length}</span></h3><div class="stack">
+      // two tabs, one full screen each: "Now serving" (ready to hand over) and "Preparing" (still in the kitchen)
+      const prepRows = model.filter((m) => m.o.status !== 'ready' && (m.o.status === 'cancelled' || !K.pickup(m.o).collectable));
+      const rows = model.filter((m) => m.o.status === 'ready' || (m.o.status !== 'cancelled' && K.pickup(m.o).collectable));
+      const late = rows.filter((m) => uncollected(m.o)).sort((a, b) => uncollected(b.o) - uncollected(a.o)), rest = rows.filter((m) => !uncollected(m.o));
+      const tab = p.ftab === 'prep' ? 'prep' : 'serving';
+      const readyIds = rows.map((m) => m.o.id);
+      if (!ctx.seenReady) ctx.seenReady = new Set(readyIds);
+      if (tab === 'serving') { ctx.seenReady = new Set(readyIds); ctx.flashServe = false; }
+      else if (readyIds.some((id) => !ctx.seenReady.has(id))) ctx.flashServe = true;     // something new is ready while looking at Preparing
+      const fs = p.size === 's' ? '.9em' : p.size === 'l' ? '1.1em' : '1em';
+      const tabs = `<div class="ftabs">
+        <button data-ftab="serving" class="ft-serve ${tab === 'serving' ? 'on' : ''} ${ctx.flashServe ? 'flash' : ''}">✅ Now serving <b>${rows.length}</b>${late.length ? `<span class="ft-late">⚠ ${late.length} not collected</span>` : ''}${ctx.flashServe ? '<span class="ft-new">NEW READY</span>' : ''}</button>
+        <button data-ftab="prep" class="ft-prep ${tab === 'prep' ? 'on' : ''}">🍳 Preparing <b>${prepRows.length}</b></button></div>`;
+      const body = tab === 'prep'
+        ? `<div class="col prep one"><div class="pgrid">${prepRows.map((m) => prepCard(m, ctx)).join('') || '<div class="muted" style="padding:16px">Nothing in the kitchen</div>'}</div></div>`
+        : `<div class="col ready one"><div class="colkey-row"><small class="colkey"><span class="k part"></span>part ready <span class="k all"></span>all ready</small></div><div class="stack">
             ${late.length ? `<div class="uc-head">⚠ Not collected — ${ucMin()}+ min · call again / buzz <span class="pill badge-cancel">${late.length}</span></div>${late.map((m) => ticket(m, kind, ctx)).join('')}${rest.length ? '<div class="uc-sep">Ready</div>' : ''}` : ''}
-            ${rest.map((m) => ticket(m, kind, ctx)).join('') || (late.length ? '' : '<div class="muted" style="padding:10px">—</div>')}</div></div>`;
-        })()}</div>`;
+            ${rest.map((m) => ticket(m, kind, ctx)).join('') || (late.length ? '' : '<div class="muted" style="padding:16px">Nothing ready right now</div>')}</div></div>`;
+      html = `<div class="ftab-wrap" style="font-size:${fs}">${tabs}${body}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
     } else if (p.layout === 'summary' && kind === 'station') {
