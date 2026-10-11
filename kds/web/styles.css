@@ -611,3 +611,9 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .ftab-wrap.dens-4 .iname{font-size:1em}
 .ftab-wrap:not(.dens-1) .uc-head{margin:0;padding:2px 2px 0;font-size:.9em}
 .ftab-wrap:not(.dens-1) .uc-badge{padding:3px 8px;font-size:.85em}
+
+/* item summary: modifiers and notes (spicy, extra cheese…) — red and bold so nobody misses them */
+.chip .cmods{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip .cmod{background:#d92d20;color:#fff;font-weight:900;font-size:.88em;line-height:1.2;padding:3px 8px;border-radius:6px;letter-spacing:.01em}
+.chip .cmod.note{background:#a3150b;font-style:italic}
+.qty.qtap.cq,.qty.qtap.mq{background:var(--accent);color:#1b1100}

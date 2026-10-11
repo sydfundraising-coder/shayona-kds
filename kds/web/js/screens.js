@@ -327,7 +327,7 @@
           return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
             <span class="c1">${isNew(r.it.id) ? '<span class="newtag">NEW</span>' : ''}${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
             <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + packLabel(r.it.pack) : ''}</span>
-            ${mods.length ? `<span class="c2">${esc(mods.join(', '))}</span>` : ''}</div>`;
+            ${mods.length || r.it.note ? `<span class="cmods">${mods.map((x) => `<span class="cmod">${esc(x)}</span>`).join('')}${r.it.note ? `<span class="cmod note">“${esc(r.it.note)}”</span>` : ''}</span>` : ''}</div>`;
         }).join('')}</div></div>`).join('');
   }
   // ---- Make line (window): one row per unit, grouped by item, oldest order first.
