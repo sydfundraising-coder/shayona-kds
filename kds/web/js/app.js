@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '11 Oct 2026 · red notes v29';
+  K.VERSION = '17 Oct 2026 · app install v30';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -207,6 +207,7 @@
       if (r.name === 'home') r = { ...r, name: 'locked' };
     }
     const fn = K.routes[r.name] || K.routes.home;
+    if (!dataOnly && ['station', 'window', 'front', 'board'].includes(r.name)) { try { localStorage.setItem('kds.launch', location.hash); } catch (_) {} }
     if (!dataOnly) { K.pageRefresh = null; hideBanner(); }
     if (dataOnly && fn.onData) return fn.onData(r);
     if (dataOnly && fn.static) return;
@@ -353,6 +354,7 @@
           <div class="muted">${api.mode === 'demo' ? `Demo mode — sample orders using your real menu. Nothing is sent to Square.<br><b>Why demo:</b> ${K.esc(K.demoReason || '')} <span class="faint">(site config URL: ${K.esc((window.KDS_CONFIG && window.KDS_CONFIG.supabaseUrl) || 'empty')})</span>` : `Signed in as ${K.esc(api.user?.email)} (${api.role})`}</div></div>
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
+        ${K.installCard()}
         ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> <a href="#/admin?tab=health">Run the health check →</a> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
         <div class="tiles">
@@ -439,6 +441,14 @@
       const CFG = ['stations', 'catalog_items', 'categories', 'kds_settings', 'menu_presets', 'menu_media'];
       api.subscribe((table) => { if (CFG.includes(table)) K.configChanged(); else K.reload(); },
         (ok) => { const was = st.connected; setConn(ok); if (ok && was === false) { K.reload(0); K.configChanged(); } });
+      // installed app: open straight on the screen this tablet used last (not the home page)
+      try {
+        if (K.isApp && !sessionStorage.getItem('kds-launched')) {
+          sessionStorage.setItem('kds-launched', '1');
+          const last = localStorage.getItem('kds.launch');
+          if (last && (!location.hash || location.hash === '#/' || location.hash === '#')) history.replaceState(null, '', location.pathname + last);
+        }
+      } catch (_) {}
       K.render();
       K.reload(0);
       setInterval(() => K.reload(0), 20000);            // safety net if live updates drop
@@ -455,6 +465,22 @@
     }
   }
   K.boot = boot;
+  // ---- installable app
+  K.isApp = window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || /[?&]app=1/.test(location.search);
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) window.addEventListener('load', () => navigator.serviceWorker.register('/push-sw.js', { scope: '/' }).catch(() => {}));
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); K.installEvt = e; if (K.route().name === 'home' || !location.hash || location.hash === '#/') { const c = K.$('#install'); if (c) c.outerHTML = K.installCard(); } });
+  window.addEventListener('appinstalled', () => { K.installEvt = null; const c = K.$('#install'); if (c) c.remove(); K.toast && K.toast('Installed — open “Shayona KDS” from the home screen'); });
+  K.installCard = function () {
+    if (K.isApp) return '<div id="install" hidden></div>';
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (K.installEvt) return `<div id="install" class="card install-card"><div><b>📲 Install as an app on this tablet</b><div class="muted">Opens full screen with its own icon, straight onto this tablet's screen.</div></div><button class="btn primary" id="install-btn">Install app</button></div>`;
+    if (ios) return `<div id="install" class="card install-card"><div><b>📲 Install as an app on this iPad</b><div class="muted">Tap <b>Share</b> ⬆︎ at the top of Safari, then <b>Add to Home Screen</b> → <b>Add</b>. Open <b>Shayona KDS</b> from the home screen.</div></div></div>`;
+    return '<div id="install" hidden></div>';
+  };
+  document.addEventListener('click', async (e) => {
+    if (!e.target.closest('#install-btn') || !K.installEvt) return;
+    K.installEvt.prompt(); try { await K.installEvt.userChoice; } catch (_) {} K.installEvt = null; const c = K.$('#install'); if (c) c.remove();
+  });
   window.addEventListener('online', () => { K.reload(0); K.configChanged(); });
   document.addEventListener('DOMContentLoaded', boot);
 })();

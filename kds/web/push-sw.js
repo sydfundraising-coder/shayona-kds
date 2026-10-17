@@ -1,5 +1,16 @@
-/* Service worker for the customer order tracker (/track): shows "your order is ready" notifications
- * that arrive by Web Push — they work with the screen off or the browser closed. */
+/* One service worker for the whole site:
+ *  - customer order tracker (/track): shows "your order is ready" notifications that arrive by Web Push
+ *    (they work with the screen off or the browser closed)
+ *  - installed KDS app: if a tablet starts up with no Wi-Fi, shows a "reconnecting" page that retries by
+ *    itself instead of the browser's error page. Everything else goes straight to the network (always fresh). */
+const OFFLINE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reconnecting…</title><body style="margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#0f1720;color:#eef2f6;font-family:system-ui,sans-serif;text-align:center;padding:20px">
+<div style="font-size:3em">📶</div><h2 style="margin:0">Reconnecting…</h2><p style="color:#9aa6b5;max-width:420px">No internet on this screen right now. It will open by itself as soon as the Wi-Fi is back.</p>
+<script>setInterval(()=>{fetch('/',{cache:'no-store'}).then(r=>{if(r.ok)location.reload()}).catch(()=>{})},8000);addEventListener('online',()=>location.reload())</script>`;
+self.addEventListener('fetch', (e) => {
+  if (e.request.mode !== 'navigate') return;                     // only page loads; data and files untouched
+  e.respondWith(fetch(e.request).catch(() => new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+});
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
