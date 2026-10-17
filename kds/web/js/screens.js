@@ -309,6 +309,23 @@
       <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}</ul>
       <div class="row">${foot}</div></div>`;
   }
+  // Keep tiles where they are while staff tap: existing tiles never move, new ones join at the end, and a
+  // finished tile leaves a faded "done" placeholder for a moment so the next tile doesn't slide under the finger.
+  const GHOST_MS = 2500;
+  function stableOrder(ctx, slot, keys, firstSort) {
+    const S = ctx[slot] || (ctx[slot] = { order: null, ghosts: new Map() });
+    const now = Date.now(), have = new Set(keys);
+    if (!S.order) S.order = [...keys].sort(firstSort);
+    else {
+      S.order.forEach((k) => { if (!have.has(k) && !S.ghosts.has(k) && S.last && S.last.has(k)) S.ghosts.set(k, now + GHOST_MS); });
+      for (const [k, until] of S.ghosts) if (until <= now || have.has(k)) S.ghosts.delete(k);
+      S.order = S.order.filter((k) => have.has(k) || S.ghosts.has(k));
+      S.order.push(...keys.filter((k) => !S.order.includes(k)).sort(firstSort));
+    }
+    S.last = have;
+    if (S.ghosts.size && !S.timer) S.timer = setTimeout(() => { S.timer = null; if (K.$('#wrap')) drawBoard(ctx); }, GHOST_MS + 50);
+    return S.order.map((k) => ({ key: k, ghost: !have.has(k) }));
+  }
   function summaryView(model, ctx) {
     const groups = new Map();
     model.forEach((m) => m.pending.forEach((it) => {
@@ -317,11 +334,15 @@
       if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, total: 0, rows: [] });
       const g = groups.get(key); const rem = it.qty - it.qty_prep; g.total += rem; g.rows.push({ o: m.o, it, rem });
     }));
-    if (!groups.size) return empty();
     groups.forEach((g) => g.rows.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at)));   // oldest order first
-    return [...groups.values()].sort((a, b) => b.total - a.total).map((g) => `
+    const oldest = (k) => new Date(groups.get(k).rows[0].o.received_at).getTime();
+    const seq = stableOrder(ctx, 'sumOrder', [...groups.keys()], (a, b) => oldest(a) - oldest(b));
+    if (!seq.length) return empty();
+    ctx.ghostNames = ctx.ghostNames || {};
+    groups.forEach((g, k) => { ctx.ghostNames[k] = g.name + (g.variation ? ' · ' + g.variation : ''); });
+    return seq.map(({ key, ghost }) => ghost ? `<div class="sgroup ghost"><div class="shead"><span class="n">✓</span><span class="nm">${esc(ctx.ghostNames[key] || '')}</span><span class="muted">done</span></div></div>` : groups.get(key)).map((g) => typeof g === 'string' ? g : `
       <div class="sgroup ${g.rows.some((r) => isNew(r.it.id)) ? 'has-new' : ''}"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
-        <button class="btn ok bump1" data-act="bump" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="1" title="Push one of this item, oldest order first">Bump 1 · ${esc(ono(g.rows[0].o))}</button></div>
+        <button class="btn ok bump1" data-act="bump" data-sig="b1:${esc(g.name)}|${esc(g.variation || '')}" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="1" title="Push one of this item, oldest order first">Bump 1 · ${esc(ono(g.rows[0].o))}</button></div>
         <div class="chips">${g.rows.map((r) => {
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
           return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
@@ -562,7 +583,11 @@
     } else if (p.layout === 'summary' && kind === 'station') {
       html = `<div class="board tickets size-${p.size === 's' ? 'm' : 'l'}">${summaryView(model, ctx)}</div>`;
     } else if (p.layout === 'list') {
-      html = `<div class="board list">${model.map((m) => listRow(m, kind, ctx)).join('') || empty()}</div>`;
+      // rows stay put while tapping; a finished order leaves a short "done" placeholder
+      const byId = new Map(model.map((m) => [m.o.id, m])), pos = new Map(model.map((m, i) => [m.o.id, i]));
+      const seq = stableOrder(ctx, 'listOrder', model.map((m) => m.o.id), (a, b) => pos.get(a) - pos.get(b));
+      ctx.ghostNo = ctx.ghostNo || {}; model.forEach((m) => { ctx.ghostNo[m.o.id] = ono(m.o); });
+      html = `<div class="board list">${seq.map(({ key, ghost }) => ghost ? `<div class="lrow ghost"><div class="lhead"><span class="ono">${esc(ctx.ghostNo[key] || '')}</span></div><div class="muted">✓ done</div></div>` : listRow(byId.get(key), kind, ctx)).join('') || empty()}</div>`;
     } else {
       html = `<div class="board ${p.layout === 'rail' ? 'rail' : 'tickets'} size-${p.size}">${model.map((m) => ticket(m, kind, ctx)).join('') || empty()}</div>`;
     }
@@ -636,6 +661,9 @@
     e.stopPropagation();
     const act = el.dataset.act;
     if (el.classList.contains('busy')) return;
+    const sig = el.dataset.sig || [el.dataset.act, el.dataset.item, el.dataset.order, el.dataset.n].join('|');
+    if (ctx.lastTap && Date.now() - ctx.lastTap.t < 450 && ctx.lastTap.sig !== sig) return;   // screen just changed under the finger
+    ctx.lastTap = { t: Date.now(), sig };
     el.classList.add('busy'); setTimeout(() => el.classList.remove('busy'), 800);
     try {
       if (act === 'bump') {

@@ -622,3 +622,7 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .install-card{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px;border:2px solid var(--accent)}
 .install-card .muted{font-size:.9em;margin-top:2px}
 .install-card .btn{flex:none}
+
+/* placeholder left for a moment where a finished tile/row was, so nothing slides under the finger */
+.sgroup.ghost,.lrow.ghost{opacity:.35;border-style:dashed;pointer-events:none;min-height:64px}
+.sgroup.ghost .shead .n{color:var(--ok)}
