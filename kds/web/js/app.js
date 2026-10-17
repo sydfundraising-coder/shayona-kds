@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '17 Oct 2026 · tiles stay put v31';
+  K.VERSION = '17 Oct 2026 · menu category filter v32';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {

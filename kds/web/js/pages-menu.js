@@ -44,16 +44,20 @@
         <input id="mq" placeholder="Search items…" class="grow" style="min-width:200px">
         <select id="mf"><option value="">All items</option><option value="on">Available</option><option value="off">Sold out</option>
           <option value="new">NEW</option><option value="wait">With wait time</option><option value="nophoto">Available, no photo</option></select>
+        <select id="mc" title="Show one category">${catOptions()}</select>
         <button class="btn" id="msync">↻ Refresh from Square</button>
       </div>
       <p class="muted" style="font-size:.86em;margin:8px 0 0">Switch = available / sold out in Square (POS &amp; online), the kitchen screens and the TV menu.
       <b>J</b> = Jain mark · <b>NEW</b> badge · <b>⏱</b> tap to cycle peak wait (10–60 min) · <b>＋</b> add-on line under the item on the board.
       Wait times also fill in automatically from the kitchen when items are taking long (faint ⏱).</p>
       <div id="mlist"></div>`;
+    try { K.$('#mc').value = localStorage.getItem('kds.menu.cat') || ''; if (K.$('#mc').selectedIndex < 0) K.$('#mc').value = ''; } catch (_) {}
     api.liveWaits().then((w) => { autoWaits = w || {}; draw(); });
     const draw = () => {
-      const q = K.$('#mq').value.trim().toLowerCase(), f = K.$('#mf').value;
+      const sel = K.$('#mc'), keep = sel.value; sel.innerHTML = catOptions(); sel.value = keep; if (sel.selectedIndex < 0) sel.value = '';   // keep counts fresh
+      const q = K.$('#mq').value.trim().toLowerCase(), f = K.$('#mf').value, cat = K.$('#mc').value;
       let rows = menuItems();
+      if (cat) rows = rows.filter((c) => boardCat(c) === cat);
       if (q) rows = rows.filter((c) => c.item_name.toLowerCase().includes(q));
       if (f === 'on') rows = rows.filter((c) => c.available);
       if (f === 'off') rows = rows.filter((c) => !c.available);
@@ -70,6 +74,12 @@
           <div class="mm-list">${list.map(rowHtml).join('')}</div>`;
       }).join('') || '<div class="empty">No items match</div>';
     };
+    // category list for the filter: every category on the menu, with how many items are available
+    function catOptions() {
+      const by = {};
+      menuItems().forEach((c) => { const g = boardCat(c); (by[g] = by[g] || { n: 0, on: 0 }).n++; if (c.available) by[g].on++; });
+      return `<option value="">All categories</option>` + Object.keys(by).sort().map((g) => `<option value="${esc(g)}">${esc(g)} (${by[g].on}/${by[g].n})</option>`).join('');
+    }
     function rowHtml(c) {
       const opts = [...new Set([c.category_name, ...(c.category_ids || []).map(catName)].filter(Boolean))];
       const aw = autoWaits[c.variation_id];
@@ -91,6 +101,7 @@
     }
     const patchLocal = (ids, patch) => st.cfg.catalog.filter((c) => ids.includes(c.variation_id)).forEach((c) => Object.assign(c, patch));
     K.$('#mq').oninput = draw; K.$('#mf').onchange = draw;
+    K.$('#mc').onchange = () => { try { localStorage.setItem('kds.menu.cat', K.$('#mc').value); } catch (_) {} draw(); };
     K.pageRefresh = draw;                          // live: redraw when anything changes on another screen or in Square
     K.$('#msync').onclick = async (e) => {
       e.target.disabled = true;
