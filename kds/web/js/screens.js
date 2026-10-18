@@ -409,7 +409,7 @@
       const first = g.ready[0] || g.cooking[0];
       return `<div class="mgroup"><div class="mhead"><span class="n">${g.nReady}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}
           <small class="muted" style="display:block;font-weight:600">${g.nReady} ready${g.nCooking ? ` · ${g.nCooking} cooking` : ''}</small></span>
-        ${g.nReady ? `<button class="btn sm ok" data-act="bump" data-item="${first.it.id}" data-stage="window" data-n="all">Finish oldest</button>` : ''}</div>
+        ${g.nReady ? `<button class="btn ok bump1" data-act="bump" data-sig="w1:${esc(g.name)}|${esc(g.variation || '')}" data-item="${first.it.id}" data-stage="window" data-n="1" title="Finish one of this item, oldest order first">Finish 1 · ${esc(ono(first.o))}</button>` : ''}</div>
         <div class="mrows">${rows}</div></div>`;
     }).join('') + comingLine;
   }
