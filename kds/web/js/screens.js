@@ -323,7 +323,7 @@
       S.order.push(...keys.filter((k) => !S.order.includes(k)).sort(firstSort));
     }
     S.last = have;
-    if (S.ghosts.size && !S.timer) S.timer = setTimeout(() => { S.timer = null; if (K.$('#wrap')) drawBoard(ctx); }, GHOST_MS + 50);
+    if (S.ghosts.size && !S.timer) S.timer = setTimeout(() => { S.timer = null; if (K.curCtx === ctx && K.$('#wrap')) drawBoard(ctx); }, GHOST_MS + 50);
     return S.order.map((k) => ({ key: k, ghost: !have.has(k) }));
   }
   function summaryView(model, ctx) {
@@ -440,6 +440,7 @@
     const colour = station ? station.colour : kind === 'window' ? 'var(--ok)' : 'var(--info)';
     const stageOf = { station: 'prep', window: 'window', front: 'front' }[kind];
     const ctx = { kind, station, key, p, stage: stageOf, seen: null, fresh: new Set() };
+    K.curCtx = ctx;
     K.screenCtx = ctx;
 
     document.getElementById('app').innerHTML = `
@@ -467,14 +468,14 @@
       if (a === 'recall') recallDrawer(ctx);
       if (a === 'avail') location.hash = `#/availability${station ? '?station=' + station.id : ''}`;
     };
-    let down = null, lastScroll = 0;
+    let down = null;
     const wrapEl = K.$('#wrap');
     wrapEl.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true });
-    window.addEventListener('scroll', () => { lastScroll = Date.now(); }, { passive: true, capture: true });
     K.$('#wrap').onclick = (e) => {
       // ignore taps that were really a scroll: finger moved, or the screen was still scrolling
-      const moved = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12;
-      if (moved || Date.now() - lastScroll < 350) { if (e.target.closest('[data-act]')) { e.stopPropagation(); return; } }
+      const moved = down && Date.now() - down.t < 3000 && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 14;
+      down = null;
+      if (moved && e.target.closest('[data-act]')) { e.stopPropagation(); return; }
       const ft = e.target.closest('[data-ftab]');
       if (ft) { p.ftab = ft.dataset.ftab; K.savePrefs(key, p); window.scrollTo(0, 0); drawBoard(ctx); return; }
       onAction(e, ctx);
@@ -483,7 +484,20 @@
     drawBoard(ctx);
   }
 
+  // never let one bad render freeze a screen: show a note and reload the page by itself
+  let renderFailed = 0;
   function drawBoard(ctx) {
+    try { drawBoardInner(ctx); renderFailed = 0; }
+    catch (e) {
+      console.error('KDS render error', e);
+      if (++renderFailed >= 2 && !K._healing) {
+        K._healing = true;
+        const b = K.$('#banner'); if (b) b.innerHTML = '<div class="banner">⚠ Screen problem — refreshing in 5 seconds…</div>';
+        setTimeout(() => location.reload(), 5000);
+      }
+    }
+  }
+  function drawBoardInner(ctx) {
     const { kind, station, p } = ctx;
     if (!K.$('#wrap')) return;
     ctx.th = K.thresholds(station);
@@ -662,7 +676,7 @@
     const act = el.dataset.act;
     if (el.classList.contains('busy')) return;
     const sig = el.dataset.sig || [el.dataset.act, el.dataset.item, el.dataset.order, el.dataset.n].join('|');
-    if (ctx.lastTap && Date.now() - ctx.lastTap.t < 450 && ctx.lastTap.sig !== sig) return;   // screen just changed under the finger
+    if (ctx.lastTap && Date.now() - ctx.lastTap.t < 350 && ctx.lastTap.sig !== sig) return;   // screen just changed under the finger
     ctx.lastTap = { t: Date.now(), sig };
     el.classList.add('busy'); setTimeout(() => el.classList.remove('busy'), 800);
     try {
@@ -829,7 +843,8 @@
   }
   window.addEventListener('resize', () => { if (K.$('#pb-prep')) K.routes.board.onData(); });
   K.routes.board.live = true;
-  K.routes.board.onData = function () {
+  K.routes.board.onData = function () { try { boardData(); } catch (e) { console.error('board render error', e); } };
+  function boardData() {
     const prep = K.$('#pb-prep'), ready = K.$('#pb-ready'); if (!prep) return;
     const live = st.orders.filter((o) => ['new', 'preparing', 'at_window', 'ready'].includes(o.status)).sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
     const pk = new Map(live.map((o) => [o.id, K.pickup(o)]));

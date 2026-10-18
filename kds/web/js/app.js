@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '18 Oct 2026 · board fits v34';
+  K.VERSION = '18 Oct 2026 · freeze fix v35';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
