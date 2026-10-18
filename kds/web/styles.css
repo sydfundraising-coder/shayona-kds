@@ -626,3 +626,12 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 /* placeholder left for a moment where a finished tile/row was, so nothing slides under the finger */
 .sgroup.ghost,.lrow.ghost{opacity:.35;border-style:dashed;pointer-events:none;min-height:64px}
 .sgroup.ghost .shead .n{color:var(--ok)}
+
+/* customer pickup board: numbers shrink to fit when it's busy */
+.pboard{height:100vh;overflow:hidden}
+.pboard section{min-height:0;overflow:hidden}
+.pboard .nums{flex:1;min-height:0;overflow:hidden;align-content:flex-start;gap:calc(var(--nf,9vh) * .22)}
+.pboard .nums .num{font-size:var(--nf,9vh);padding:.1em .3em;min-width:1.75em;border-radius:.2em}
+.pboard .nums .num small{font-size:max(1.4vh, .3em)}
+.pboard .nums .num.more{background:transparent;border:3px dashed var(--line);color:var(--muted);font-size:min(var(--nf,9vh), 5vh);align-self:center}
+.pboard:has(~ .pb-qr) .serving{padding-bottom:20vh}            /* leave room for the QR card in the corner */

@@ -810,12 +810,24 @@
     document.getElementById('app').innerHTML = `<div class="pboard two"><section class="prep"><h2>Preparing</h2><div class="nums" id="pb-prep"></div></section>
       <section class="serving"><h2>Now serving</h2><div class="nums" id="pb-ready"></div>
       <div class="pb-key"><span class="k part"></span>Part of your order is ready <span class="k all"></span>Whole order ready</div></section></div>
-      ${window.qrcode ? `<div class="pb-qr"><div class="pb-qr-code">${(() => { const qr = qrcode(0, 'M'); qr.addData(location.origin + '/track'); qr.make(); return qr.createSvgTag({ cellSize: 6, margin: 1, scalable: true }); })()}</div><div><b>Get a buzz when it's ready</b><span>Scan · type your order number · keep the page open</span></div></div>` : ''}
+      ${window.qrcode ? `<div class="pb-qr"><div class="pb-qr-code">${(() => { const qr = qrcode(0, 'M'); qr.addData(location.origin + '/track'); qr.make(); return qr.createSvgTag({ cellSize: 6, margin: 1, scalable: true }); })()}</div><div><b>Get a buzz when it's ready</b><span>Scan · type your order number · tap Turn on alerts</span></div></div>` : ''}
       <a href="#/" class="iconbtn" style="position:fixed;left:8px;bottom:8px;opacity:.25">←</a>`;
     K.$('.pboard').onclick = () => { K.unlockAudio(); K.keepAwake(); document.documentElement.requestFullscreen?.().catch(() => {}); };
     K.routes.board.onData();
   };
   let boardSeen = null;
+  // shrink the numbers until every order fits on the TV; if there are still too many, show "+N more"
+  function fitNums(el) {
+    if (!el) return;
+    const fits = () => el.scrollHeight <= el.clientHeight + 1;
+    let f = 9; el.style.setProperty('--nf', f + 'vh');
+    while (!fits() && f > 3.6) { f -= 0.4; el.style.setProperty('--nf', f.toFixed(1) + 'vh'); }
+    if (fits()) return;
+    const kids = [...el.children]; let hidden = 0;
+    const more = document.createElement('div'); more.className = 'num more'; el.appendChild(more);
+    while (!fits() && kids.length) { kids.pop().remove(); hidden++; more.textContent = '+' + hidden + ' more'; }
+  }
+  window.addEventListener('resize', () => { if (K.$('#pb-prep')) K.routes.board.onData(); });
   K.routes.board.live = true;
   K.routes.board.onData = function () {
     const prep = K.$('#pb-prep'), ready = K.$('#pb-ready'); if (!prep) return;
@@ -830,6 +842,7 @@
       if (o.status === 'ready') return `<div class="num all ${uc ? 'uc' : Date.now() - new Date(o.ready_at) < 60e3 ? 'fresh' : ''}">${num(o)}${uc ? '<small>Please collect</small>' : ''}</div>`;
       return `<div class="num part ${uc ? 'uc' : ''}">${num(o)}<small>${uc ? 'Please collect · ' : ''}${k.readyOrDone} of ${k.total} ready</small></div>`;
     }).join('');
+    fitNums(prep); fitNums(ready);
     const ids = new Set(serving.map((o) => o.id + ':' + pk.get(o.id).readyOrDone));
     if (boardSeen && [...ids].some((id) => !boardSeen.has(id))) K.beep('new');
     boardSeen = ids;
