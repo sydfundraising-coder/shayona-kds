@@ -564,7 +564,13 @@
         && (!station || routeOf(c) === station.id) && !seen.has(c.item_name) && seen.add(c.item_name));
       if (off.length) banner = `<div class="banner"><span>Sold out:</span> ${off.slice(0, 12).map((c) => `<span class="pill badge-cancel">${esc(c.item_name)}</span>`).join(' ')}${off.length > 12 ? ` +${off.length - 12} more` : ''}</div>`;
     }
-    if (!st.connected) banner += '<div class="banner">⚠ Connection lost — retrying. New orders may be delayed.</div>';
+    if (K.offline) {
+      const at = K.cacheAt ? new Date(K.cacheAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      const q = K.queueSize ? K.queueSize() : 0;
+      banner += K.relayOk
+        ? `<div class="banner offline-banner">📴 <b>BACKUP MODE</b> — the main database is down. Screens are linked through the backup and new orders come straight from Square. ${q ? `${q} push${q > 1 ? 'es' : ''} will be saved to the database when it's back.` : ''}</div>`
+        : `<div class="banner offline-banner">📴 <b>OFFLINE</b> — finish the orders on screen (saved ${esc(at)}). New orders won't show until the connection is back. ${q ? `<b>${q}</b> push${q > 1 ? 'es' : ''} saved on this tablet — sent automatically when back online.` : 'Pushes are saved on this tablet and sent automatically.'}</div>`;
+    } else if (!st.connected) banner += '<div class="banner">⚠ Connection lost — retrying. New orders may be delayed.</div>';
     K.$('#banner').innerHTML = banner;
 
     let html;

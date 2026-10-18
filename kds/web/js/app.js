@@ -134,8 +134,241 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '18 Oct 2026 · start-up check v36';
-  K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
+  // ---- live changes are applied straight from the message (no full reload per change):
+  // the database does far less work when the café is busy and many screens are open
+  let patchTimer = null, softTimer = null;
+  const renderSoon = () => { clearTimeout(patchTimer); patchTimer = setTimeout(() => { index(); K.render(true); }, 80); };
+  function upsertBy(list, key, row) { const i = list.findIndex((x) => x[key] === row[key]); if (i >= 0) list[i] = row; else list.push(row); }
+  K.patchOrders = function (table, p) {
+    if (!st.loaded || !p || !p.eventType) return false;
+    const list = table === 'orders' ? st.orders : st.items;
+    if (p.eventType === 'DELETE') { const id = p.old && p.old.id; if (!id) return false; const i = list.findIndex((x) => x.id === id); if (i >= 0) list.splice(i, 1); }
+    else if (p.new && p.new.id) {
+      if (table === 'order_items' && !st.orders.some((o) => o.id === p.new.order_id)) return false;   // item of an order we don't have yet → full reload
+      upsertBy(list, 'id', p.new);
+    } else return false;
+    renderSoon(); return true;
+  };
+  const CFG_KEY = { catalog_items: 'variation_id', stations: 'id', categories: 'square_id', menu_presets: 'id', menu_media: 'id' };
+  const CFG_LIST = { catalog_items: 'catalog', stations: 'stations', categories: 'categories', menu_presets: 'presets', menu_media: 'media' };
+  K.patchConfig = function (table, p) {
+    if (!st.cfg || !p || !p.eventType) return false;
+    if (table === 'kds_settings') { if (p.eventType === 'DELETE' || !p.new) return false; st.cfg.settings[p.new.key] = p.new.value; }
+    else {
+      const key = CFG_KEY[table], list = st.cfg[CFG_LIST[table]]; if (!key || !list) return false;
+      const row = p.eventType === 'DELETE' ? p.old : p.new; if (!row || row[key] == null) return false;
+      const i = list.findIndex((x) => x[key] === row[key]);
+      if (p.eventType === 'DELETE' || (table === 'catalog_items' && row.is_deleted)) { if (i >= 0) list.splice(i, 1); }
+      else if (i >= 0) list[i] = { ...list[i], ...row }; else list.push(row);
+    }
+    clearTimeout(softTimer); softTimer = setTimeout(() => K.softRender(), 400);
+    return true;
+  };
+  // ================================================================ OFFLINE MODE
+  // Each tablet keeps a copy of the open orders. If the database stops answering, the tablet carries on with
+  // that copy: staff can keep pushing items, the pushes are saved on the tablet and sent when it reconnects.
+  const LS = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (_) { return null; } },
+               set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } } };
+  let lastSave = 0;
+  K.saveCache = function (force) {
+    if (K.offline && !force) { LS.set('kds.cache.orders', { at: K.cacheAt || Date.now(), orders: st.orders, items: st.items }); return; }
+    if (!force && Date.now() - lastSave < 10e3) return;
+    lastSave = Date.now();
+    LS.set('kds.cache.orders', { at: Date.now(), orders: st.orders, items: st.items });
+  };
+  K.saveCfgCache = () => { if (st.cfg) LS.set('kds.cache.cfg', { at: Date.now(), cfg: st.cfg }); };
+  K.hasCache = () => { const o = LS.get('kds.cache.orders'), c = LS.get('kds.cache.cfg'); return !!(o && c && Date.now() - o.at < 16 * 3600e3); };
+  const queue = () => LS.get('kds.queue') || [];
+  K.offline = false;
+  K.goOffline = function () {
+    if (K.offline) return;
+    K.offline = true; K.cacheAt = K.cacheAt || Date.now(); setConn(false);
+    K.toast && K.toast('📴 Connection lost — working offline. Pushes are saved on this tablet.', { error: true });
+    K.render(true); offlineRetry(); relayStart();
+  };
+  function offlineRetry() {
+    clearTimeout(K._offT);
+    K._offT = setTimeout(async () => {
+      try { await api.ping(); }
+      catch (_) { return offlineRetry(); }
+      if (!K.booted) return location.reload();            // started offline: a fresh start signs in and sends the saved pushes
+      K.offline = false; await K.syncQueue(); K.reload(0); K.configChanged();
+      K.toast && K.toast('✅ Back online');
+    }, 15e3);
+  }
+  // counters exactly like the database does it (kds_bump), then the order status (kds_refresh_order)
+  function refreshOrder(o) {
+    if (!o || o.status === 'cancelled') return;
+    const its = (st.items || []).filter((i) => i.order_id === o.id && !i.removed); if (!its.length) return;
+    const all = (f) => its.every(f);
+    const any = its.some((i) => (i.qty_prep > 0 && !i.no_prep) || (i.qty_window > 0 && !i.no_prep) || i.qty_front > 0);
+    const now = new Date().toISOString();
+    o.status = all((i) => i.qty_front >= i.qty) ? 'completed' : all((i) => i.qty_window >= i.qty) ? 'ready' : all((i) => i.qty_prep >= i.qty) ? 'at_window' : any ? 'preparing' : 'new';
+    if (o.status === 'ready' && !o.ready_at) o.ready_at = now;
+    if (o.status === 'completed' && !o.completed_at) o.completed_at = now;
+    o.updated_at = now;
+  }
+  K.offlineBump = function (itemId, stage, qty, force) {
+    const it = st.items.find((i) => i.id === itemId); if (!it) return 0;
+    const o = st.orders.find((x) => x.id === it.order_id); if (!o || o.status === 'cancelled') return 0;
+    const avail = stage === 'prep' ? it.qty - it.qty_prep : stage === 'window' ? (force ? it.qty - it.qty_window : it.qty_prep - it.qty_window) : (force ? it.qty - it.qty_front : it.qty_window - it.qty_front);
+    const n = Math.min(qty == null ? avail : qty, avail); if (n <= 0) return 0;
+    const now = new Date().toISOString();
+    if (stage !== 'prep' && force) {
+      const cur = stage === 'front' ? it.qty_front : it.qty_window;
+      it.qty_prep = Math.max(it.qty_prep, cur + n);
+      if (stage === 'front') it.qty_window = Math.max(it.qty_window, it.qty_front + n);
+    }
+    if (stage === 'prep') { it.qty_prep += n; if (it.skip_window) it.qty_window = Math.min(it.qty, it.qty_window + n); if (it.qty_prep >= it.qty) it.prepared_at = it.prepared_at || now; }
+    else if (stage === 'window') { it.qty_window += n; if (it.qty_window >= it.qty) it.window_at = it.window_at || now; }
+    else { it.qty_front += n; }
+    refreshOrder(o);
+    // remember the RESULT (not "+1"), so sending it later can never push twice
+    const q = queue(), field = stage === 'prep' ? 'qty_prep' : stage === 'window' ? 'qty_window' : 'qty_front';
+    const target = it[field], e = q.find((x) => x.item === itemId && x.stage === stage);
+    const sq = sqRef(it);
+    if (e) e.target = Math.max(e.target, target); else q.push({ item: itemId, stage, target, sq, at: Date.now() });
+    LS.set('kds.queue', q); K.saveCache(true);
+    relayOut({ id: devId() + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), dev: devId(), item: itemId, stage, target, sq, at: Date.now() });
+    index(); K.render(true);
+    return n;
+  };
+  K.offlineBumpOrder = function (orderId, stage, stationId, force) {
+    let t = 0;
+    st.items.filter((i) => i.order_id === orderId && !i.removed && (!stationId || i.station_id === stationId) && (stage !== 'prep' || !i.no_prep))
+      .sort((a, b) => a.sort - b.sort).forEach((i) => { t += K.offlineBump(i.id, stage, null, force); });
+    return t;
+  };
+  K.queueSize = () => queue().length;
+  // send the pushes saved while offline (compares with what the database already has, so nothing doubles up)
+  K.syncQueue = async function () {
+    const q = queue(); if (!q.length) return 0;
+    const fresh = await api.loadActive(Math.max(30, +K.setting('front_clear_minutes', 10) + 5));
+    const byId = new Map(fresh.items.map((i) => [i.id, i]));
+    const sqOf = new Map(fresh.orders.map((o) => [o.id, o.square_order_id]));
+    const bySq = new Map(fresh.items.filter((i) => i.square_uid).map((i) => [sqOf.get(i.order_id) + '|' + i.square_uid, i]));
+    let sent = 0; const keep = [];
+    for (const e of q.sort((a, b) => a.at - b.at)) {
+      const it = byId.get(e.item) || (e.sq && bySq.get(e.sq.o + '|' + e.sq.uid));
+      if (!it) { if (e.sq && Date.now() - e.at < 6 * 3600e3) keep.push(e); continue; }   // order not in the database yet: try again later
+      const field = e.stage === 'prep' ? 'qty_prep' : e.stage === 'window' ? 'qty_window' : 'qty_front';
+      const diff = Math.min(e.target, it.qty) - it[field];
+      if (diff > 0) {
+        try { const n = await api._bumpRaw(it.id, e.stage, diff, 'offline-sync', e.stage !== 'prep'); it[field] += n || 0; sent++; }
+        catch (err) { console.error('offline sync', err); }
+      }
+    }
+    LS.set('kds.queue', keep);
+    if (sent && K.toast) K.toast(`Sent ${sent} push${sent > 1 ? 'es' : ''} made while offline`);
+    return sent;
+  };
+  K.startOffline = function () {
+    const o = LS.get('kds.cache.orders'), c = LS.get('kds.cache.cfg');
+    st.cfg = c.cfg; st.orders = o.orders; st.items = o.items; index(); st.loaded = true;
+    K.offline = true; K.cacheAt = o.at; setConn(false);
+    K.render(); offlineRetry(); relayStart();
+  };
+
+  // ================================================================ BACKUP RELAY (Vercel, separate from Supabase)
+  // While offline, tablets pass pushes to each other through /api/relay and new orders come straight from Square.
+  const devId = () => { let d = localStorage.getItem('kds.dev.id'); if (!d) { d = Math.random().toString(36).slice(2, 10); try { localStorage.setItem('kds.dev.id', d); } catch (_) {} } return d; };
+  const relayKey = () => st.cfg && st.cfg.settings && st.cfg.settings.relay_key;
+  const today = () => new Date().toLocaleDateString('en-CA');            // YYYY-MM-DD
+  function sqRef(it) {
+    const o = st.orders.find((x) => x.id === it.order_id);
+    return o && o.square_order_id && it.square_uid ? { o: o.square_order_id, uid: it.square_uid } : null;
+  }
+  function relayOut(ev) { if (!relayKey()) return; const box = LS.get('kds.outbox') || []; box.push(ev); LS.set('kds.outbox', box.slice(-500)); }
+  async function relayFetch(path, opts = {}) {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const r = await fetch('/api/relay' + path, { ...opts, signal: ctl.signal, headers: { 'x-relay-key': relayKey(), 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j;
+    } finally { clearTimeout(t); }
+  }
+  K.relayFetch = relayFetch;
+  function findItem(ev) {
+    let it = st.items.find((i) => i.id === ev.item);
+    if (!it && ev.sq) it = st.items.find((i) => i.square_uid === ev.sq.uid && (st.orders.find((o) => o.id === i.order_id) || {}).square_order_id === ev.sq.o);
+    return it;
+  }
+  let waitingRemote = [];
+  function applyRemote(ev) {
+    const it = findItem(ev); if (!it) return false;
+    const field = ev.stage === 'prep' ? 'qty_prep' : ev.stage === 'window' ? 'qty_window' : 'qty_front';
+    const target = Math.min(ev.target, it.qty);
+    if (it[field] < target) {
+      it[field] = target;
+      if (ev.stage !== 'prep') it.qty_prep = Math.max(it.qty_prep, target);
+      if (ev.stage === 'front') it.qty_window = Math.max(it.qty_window, target);
+      refreshOrder(st.orders.find((o) => o.id === it.order_id));
+    }
+    // also keep it in this tablet's list for the database (safe: only the result is sent, never twice)
+    const q = queue(), e = q.find((x) => x.item === it.id && x.stage === ev.stage);
+    if (e) e.target = Math.max(e.target, ev.target); else q.push({ item: it.id, stage: ev.stage, target: ev.target, sq: ev.sq || sqRef(it), at: ev.at || Date.now() });
+    LS.set('kds.queue', q);
+    return true;
+  }
+  // a Square order → the same shape the database makes (routing to stations from the saved menu)
+  function backupOrder(o) {
+    const S = st.cfg.settings || {};
+    const lc = (x) => String(x || '').toLowerCase(), hasAny = (t, w) => (w || []).some((x) => x && t.includes(lc(x)));
+    const f = o.fulfillment || {}, src = o.source || '';
+    const online = hasAny(lc(src), S.online_sources) || ['DELIVERY', 'SHIPMENT'].includes(f.type) || (f.type === 'PICKUP' && !!src && !/point of sale|square pos|restaurants/i.test(src));
+    const id = 'sq:' + o.id, at = o.created_at || new Date().toISOString();
+    const order = { id, square_order_id: o.id, order_no: o.ticket_name || o.id.slice(-4).toUpperCase(), kds_seq: null, source_name: src || (online ? 'Online' : 'POS'), is_online: online,
+      customer_name: f.name, note: f.note, fulfillment_type: f.type || null, pickup_at: f.pickup_at, dining_mode: 'takeaway', status: 'new',
+      placed_at: at, received_at: at, updated_at: at, from_backup: true };
+    const items = o.items.map((li, n) => {
+      const text = lc([...(li.modifiers || []), li.note || ''].join(' | '));
+      const pack = hasAny(text, S.takeaway_keywords) ? 'BOX' : hasAny(text, S.plate_keywords) ? 'PLATE' : online ? (S.online_pack || 'BOX') : (S.default_pack || 'PLATE');
+      const ci = st.cfg.catalog.find((c) => c.variation_id === li.variation_id) || st.cfg.catalog.find((c) => lc(c.item_name) === lc(li.name));
+      const cat = ci && st.cfg.categories.find((k) => k.square_id === ci.category_id);
+      const station = (ci && ci.station_id) || (cat && cat.station_id) || null;
+      const noPrep = !!((ci && ci.no_prep != null) ? ci.no_prep : cat && cat.no_prep);
+      let skipWin = !!((ci && ci.skip_window != null) ? ci.skip_window : cat && cat.skip_window);
+      const skip = (!station && !noPrep) || (noPrep && skipWin); skipWin = skipWin && !skip && !noPrep;
+      const qty = Math.max(1, Math.ceil(Number(li.qty) || 1));
+      return { id: id + ':' + li.uid, order_id: id, square_uid: li.uid, variation_id: li.variation_id, item_name: li.name, variation_name: li.variation_name,
+        category_name: (ci && ci.category_name) || (cat && cat.name) || null, station_id: noPrep ? null : station, no_prep: noPrep || skip, skip_window: skipWin,
+        qty, modifiers: li.modifiers || [], note: li.note, pack, qty_prep: noPrep || skip ? qty : 0, qty_window: skip ? qty : 0, qty_front: 0, removed: false, sort: n + 1, created_at: at };
+    });
+    return { order, items };
+  }
+  let relayCursor = null, relayTimer = null, lastOrdersPull = 0;
+  function relayStart() {
+    if (relayTimer || !relayKey()) return;
+    const c = LS.get('kds.relay.cur'); relayCursor = c && c.day === today() ? c.n : 0;
+    const tick = async () => {
+      if (!K.offline) { relayTimer = null; return; }
+      let changed = false;
+      try {
+        const box = LS.get('kds.outbox') || [];
+        if (box.length) { await relayFetch('', { method: 'POST', body: JSON.stringify({ day: today(), events: box }) }); LS.set('kds.outbox', (LS.get('kds.outbox') || []).slice(box.length)); }
+        const r = await relayFetch(`?day=${today()}&since=${relayCursor}`);
+        relayCursor = r.next; LS.set('kds.relay.cur', { day: today(), n: relayCursor });
+        const mine = devId();
+        r.events.filter((e) => e.dev !== mine).forEach((e) => { if (!applyRemote(e)) waitingRemote.push(e); else changed = true; });
+        if (Date.now() - lastOrdersPull > 10e3 && st.cfg.settings && st.cfg.settings.square_location_id) {
+          lastOrdersPull = Date.now();
+          const since = new Date((K.cacheAt || Date.now()) - 5 * 60e3).toISOString();
+          const { orders } = await relayFetch(`?orders=1&location=${encodeURIComponent(st.cfg.settings.square_location_id)}&since=${encodeURIComponent(since)}`);
+          for (const so of orders || []) {
+            if (st.orders.some((x) => x.square_order_id === so.id)) continue;
+            const b = backupOrder(so); if (!b.items.length) continue;
+            st.orders.push(b.order); st.items.push(...b.items); refreshOrder(b.order); changed = true;
+          }
+          if (changed) waitingRemote = waitingRemote.filter((e) => !applyRemote(e));   // pushes for orders that just arrived
+        }
+        K.relayOk = true;
+      } catch (e) { K.relayOk = false; console.warn('relay', e.message); }
+      if (changed) { index(); K.saveCache(true); K.render(true); }
+      relayTimer = setTimeout(tick, 2500);
+    };
+    relayTimer = setTimeout(tick, 300);
+  }
+  K.VERSION = '19 Oct 2026 · backup relay v39';
+  K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
     clearTimeout(reloadTimer);
@@ -143,10 +376,21 @@
       if (reloading) { again = true; return; }
       reloading = true;
       try {
-        const d = await api.loadActive(Math.max(30, +K.setting('front_clear_minutes', 10) + 5));
+        const limit = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15e3))]);   // never wait forever
+        if (K.queueSize && K.queueSize()) await limit(K.syncQueue());          // pushes made offline go first
+        const d = await limit(api.loadActive(Math.max(30, +K.setting('front_clear_minutes', 10) + 5)));
+        K._fails = 0;
+        if (K.offline) { K.offline = false; clearTimeout(K._offT); K.toast && K.toast('✅ Back online'); }
         st.orders = d.orders; st.items = d.items; index(); st.loaded = true; setConn(true);
+        K.saveCache();
         K.render(true);
-      } catch (e) { console.error(e); setConn(false); }
+      } catch (e) {
+        console.error(e); setConn(false);
+        if (api.mode === 'live' && K.booted && K.hasCache() && !K.offline) {          // database not answering? double-check, then carry on offline
+          K._fails = (K._fails || 0) + 1;
+          api.ping().then(() => {}, () => K.goOffline());
+        }
+      }
       reloading = false; if (again) { again = false; K.reload(); }
     }, delay);
   };
@@ -441,6 +685,7 @@
       if (el) el.textContent = `${step}… ${s}s`;
       if (s >= 20 && !K._bootStuck) {
         K._bootStuck = true; clearInterval(watch);
+        if (api.mode === 'live' && K.hasCache()) return K.startOffline();
         const pend = [...(window.KDS_PENDING || [])].join(', ');
         app.innerHTML = `<div class="page lockpage"><div class="big" style="font-size:3em">🛠</div><h2 style="margin:0">The KDS database isn't answering</h2>
           <p class="muted" style="max-width:560px">Waiting at: <b>${K.esc(step)}</b>${pend ? ` (tables: ${K.esc(pend)})` : ''}. This screen will try again by itself in 20 seconds.</p>
@@ -451,15 +696,24 @@
     }, 1000);
     try {
       const ok = await api.init();
-      if (ok === 'offline') { clearInterval(watch); return reconnectScreen(); }
+      if (ok === 'offline') { clearInterval(watch); return K.hasCache() ? K.startOffline() : reconnectScreen(); }
       if (!ok) { clearInterval(watch); return loginScreen(); }
       step = 'Loading menu, stations and settings';
       await K.loadConfig();
       clearInterval(watch);
-      if (K._bootStuck) return;
+      if (K._bootStuck) { if (K.offline) location.reload(); return; }     // database answered after all: start properly
+      K.booted = true;
       const CFG = ['stations', 'catalog_items', 'categories', 'kds_settings', 'menu_presets', 'menu_media'];
-      api.subscribe((table) => { if (CFG.includes(table)) K.configChanged(); else K.reload(); },
-        (ok) => { const was = st.connected; setConn(ok); if (ok && was === false) { K.reload(0); K.configChanged(); } });
+      api.subscribe((table, p) => {
+        if (CFG.includes(table)) { if (!K.patchConfig(table, p)) K.configChanged(); }
+        else if (!K.patchOrders(table, p)) K.reload(400);
+      },
+        (ok) => {
+          const was = st.connected; setConn(ok);
+          if (ok && was === false) { K.reload(0); K.configChanged(); }
+          // live connection dropped: if the database doesn't answer either, switch to offline/backup mode straight away
+          if (!ok && !K.offline && K.booted && K.hasCache()) setTimeout(() => { if (!st.connected && !K.offline) api.ping().then(() => {}, () => K.goOffline()); }, 4000);
+        });
       // installed app: open straight on the screen this tablet used last (not the home page)
       try {
         if (K.isApp && !sessionStorage.getItem('kds-launched')) {
@@ -470,7 +724,7 @@
       } catch (_) {}
       K.render();
       K.reload(0);
-      setInterval(() => K.reload(0), 20000);            // safety net if live updates drop
+      setInterval(() => { if (!st.connected || Date.now() - (K._lastFull || 0) > 55e3) { K._lastFull = Date.now(); K.reload(0); } }, 20000);   // safety net: every minute (every 20 s if live updates are down)
       setInterval(() => K.configChanged(), 3 * 60e3);   // safety net for settings/menu
       if (api.mode === 'live' && !K._watch) K._watch = setInterval(async () => {  // stay signed in: fix a lost sign-in quietly
         const r = await api.ensureSession();

@@ -635,3 +635,7 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .pboard .nums .num small{font-size:max(1.4vh, .3em)}
 .pboard .nums .num.more{background:transparent;border:3px dashed var(--line);color:var(--muted);font-size:min(var(--nf,9vh), 5vh);align-self:center}
 .pboard:has(~ .pb-qr) .serving{padding-bottom:20vh}            /* leave room for the QR card in the corner */
+
+/* offline mode banner */
+.banner.offline-banner{background:#7a1f1f;color:#fff;border-color:#a83232;font-size:1.02em}
+.banner.offline-banner b{color:#fff}

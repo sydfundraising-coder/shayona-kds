@@ -111,8 +111,23 @@
         noStation.length ? 'These were routed before a station was set, so they went straight to the front counter.' : 'All open items have a station (or are No prep).',
         noStation.length ? 'After fixing routing above, run <b>013_reapply_routing_open_orders.sql</b> in Supabase → SQL Editor to move today’s unstarted items back to their stations.' : '')}
       ${row(true, 'Where open items are now', `${atStation.length} at kitchen stations · ${atWindow.length} at the order window · ${itSkip.length} set to skip the window`)}
+      <h2>Backup relay (keeps screens linked if Supabase is down)</h2><div id="hc-relay"><div class="muted">Checking…</div></div>
       <h2>Customer phone alerts</h2><div id="hc-push"><div class="muted">Checking…</div></div>`;
-    pushHealth(row);
+    pushHealth(row); relayHealth(row);
+  }
+  async function relayHealth(row) {
+    const box = K.$('#hc-relay'); if (!box) return;
+    if (api.mode !== 'live') { box.innerHTML = row('warn', 'Demo mode', 'The backup relay only works on the live site.'); return; }
+    const key = K.setting('relay_key', null);
+    if (!key) { box.innerHTML = row(false, 'No relay key yet', 'Run <b>021_backup_relay.sql</b> in Supabase → SQL Editor, then reload this page.'); return; }
+    let r = null, err = '';
+    try { r = await K.relayFetch('?ping=1'); } catch (e) { err = e.message; }
+    if (!K.$('#hc-relay')) return;
+    box.innerHTML = r ? [
+      row(true, 'Relay reachable', 'The backup relay on Vercel answers with the right key.'),
+      row(r.storage ? true : false, 'Relay storage', r.storage ? 'Connected.' : 'Not connected.', r.storage ? '' : 'In Vercel → your project → <b>Storage</b>, connect an <b>Upstash Redis</b> store, then redeploy.'),
+      row(r.square ? true : false, 'Square access for backup orders', r.square ? 'Set.' : 'Missing.', r.square ? '' : 'In Vercel → Settings → Environment Variables, add <b>SQUARE_ACCESS_TOKEN</b>, then redeploy.'),
+    ].join('') : row(false, 'Relay not answering', esc(err || 'unknown error'), /key/i.test(err) ? 'The key in Vercel must match the one from SQL 021: Vercel → Settings → Environment Variables → <b>RELAY_KEY</b>, then redeploy.' : /RELAY_KEY/.test(err) ? 'Add <b>RELAY_KEY</b> in Vercel → Settings → Environment Variables (value from SQL 021), then redeploy.' : 'Upload the <b>api</b> folder (api/relay.js) to GitHub so Vercel deploys it.');
   }
   async function pushHealth(row) {
     const box = K.$('#hc-push'); if (!box) return;

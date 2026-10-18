@@ -70,10 +70,10 @@
 </head>
 <body>
 <div id="root"></div>
-<script src="config.js?v=20261011a"></script>
-<script src="js/vendor/supabase.js?v=20261011a"></script>
-<script src="js/vendor/qrcode.js?v=20261011a"></script>
-<script src="js/auto-update.js?v=20261011a"></script>
+<script src="config.js?v=20261018e"></script>
+<script src="js/vendor/supabase.js?v=20261018e"></script>
+<script src="js/vendor/qrcode.js?v=20261018e"></script>
+<script src="js/auto-update.js?v=20261018e"></script>
 <script>
 (function () {
   const root = document.getElementById('root');
@@ -293,7 +293,7 @@
       notify(`Part of order #${d.order_no} is ready`, `You can collect ${can} item${can > 1 ? 's' : ''} now.`);
     }
     if (d.status === 'completed' || d.status === 'cancelled') { stopAlarm(); return; }      // all done: stop checking
-    timer = setTimeout(track, document.visibilityState === 'visible' ? 4000 : 15000);
+    timer = setTimeout(track, document.visibilityState !== 'visible' ? 20000 : (live && pushOn(st.no)) ? 12000 : 6000);   // alerts on: the push does the waking, so check less often
   }
 
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); if (load()) track(); } });

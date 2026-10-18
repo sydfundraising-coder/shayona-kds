@@ -41,7 +41,7 @@
       "destination": "/menu-slideshow.html"
     },
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/((?!api/)(?!.*\\.).*)",
       "destination": "/index.html"
     }
   ],

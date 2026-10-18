@@ -240,13 +240,31 @@
       });
       this.channel = ch;
     }
+    // pushes: if the database can't be reached (or doesn't answer in 8 s) the tablet switches to offline
+    // mode, applies the push on screen and saves it, and sends it when the connection is back
+    async _live(call) {
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { offline: true })), 8000));
+      try { return await Promise.race([call(), timeout]); }
+      catch (e) { if (e.offline || this._isNetErr(e)) e.offline = true; throw e; }
+    }
     async bump(itemId, stage, qty, screen, force = false) {
-      return this._chk(await this.sb.rpc('kds_bump', { p_item: itemId, p_stage: stage, p_qty: qty, p_screen: screen, p_force: force }));
+      if (window.KDS.offline) return window.KDS.offlineBump(itemId, stage, qty, force);
+      try { return this._chk(await this._live(() => this.sb.rpc('kds_bump', { p_item: itemId, p_stage: stage, p_qty: qty, p_screen: screen, p_force: force }))); }
+      catch (e) { if (!e.offline) throw e; window.KDS.goOffline(); return window.KDS.offlineBump(itemId, stage, qty, force); }
     }
     async bumpOrder(orderId, stage, stationId, screen, force = false) {
-      return this._chk(await this.sb.rpc('kds_bump_order', { p_order: orderId, p_stage: stage, p_station: stationId || null, p_screen: screen, p_force: force }));
+      if (window.KDS.offline) return window.KDS.offlineBumpOrder(orderId, stage, stationId, force);
+      try { return this._chk(await this._live(() => this.sb.rpc('kds_bump_order', { p_order: orderId, p_stage: stage, p_station: stationId || null, p_screen: screen, p_force: force }))); }
+      catch (e) { if (!e.offline) throw e; window.KDS.goOffline(); return window.KDS.offlineBumpOrder(orderId, stage, stationId, force); }
     }
-    async recall(eventId, screen) { return this._chk(await this.sb.rpc('kds_recall', { p_event: eventId, p_screen: screen })); }
+    async ping() {          // quick "is the database answering?" check
+      const t = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000));
+      return Promise.race([this.sb.from('stations').select('id').limit(1).then((r) => this._chk(r)), t]);
+    }
+    async _bumpRaw(itemId, stage, qty, screen, force) {     // used when sending saved offline pushes
+      return this._chk(await this.sb.rpc('kds_bump', { p_item: itemId, p_stage: stage, p_qty: qty, p_screen: screen, p_force: force }));
+    }
+    async recall(eventId, screen) { if (window.KDS.offline) throw new Error('Recall needs the connection — try again when back online'); return this._chk(await this.sb.rpc('kds_recall', { p_event: eventId, p_screen: screen })); }
     async recentEvents(stage, stationId, minutes = 90) {
       let q = this.sb.from('item_events').select('id,qty,at,stage,forced,station_id,order_id,order_item_id,order_items(item_name,variation_name),orders(order_no)')
         .eq('stage', stage).eq('undone', false).gt('qty', 0)
