@@ -184,16 +184,19 @@
     _chk({ data, error }) { if (error) throw new Error(error.message); return data; }
 
     async loadConfig() {
+      // remember which tables are still loading, so a stuck start-up can say exactly what it is waiting for
+      const pend = (window.KDS_PENDING = window.KDS_PENDING || new Set());
+      const track = (name, p) => { pend.add(name); return Promise.resolve(p).finally(() => pend.delete(name)); };
       const [settings, stations, categories, catalog] = await Promise.all([
-        this.sb.from('kds_settings').select('key,value').then((r) => this._chk(r)),
-        this.sb.from('stations').select('*').order('sort').then((r) => this._chk(r)),
-        this.sb.from('categories').select('*').order('name').then((r) => this._chk(r)),
-        this._all(() => this.sb.from('catalog_items').select('*').eq('is_deleted', false).order('item_name')),
+        track('kds_settings', this.sb.from('kds_settings').select('key,value').then((r) => this._chk(r))),
+        track('stations', this.sb.from('stations').select('*').order('sort').then((r) => this._chk(r))),
+        track('categories', this.sb.from('categories').select('*').order('name').then((r) => this._chk(r))),
+        track('catalog_items', this._all(() => this.sb.from('catalog_items').select('*').eq('is_deleted', false).order('item_name'))),
       ]);
       const opt = async (q) => { try { return this._chk(await q); } catch (_) { return []; } }; // tables from 003 may not exist yet
       const [presets, media] = await Promise.all([
-        opt(this.sb.from('menu_presets').select('*').order('name')),
-        opt(this.sb.from('menu_media').select('*').order('sort')),
+        track('menu_presets', opt(this.sb.from('menu_presets').select('*').order('name'))),
+        track('menu_media', opt(this.sb.from('menu_media').select('*').order('sort'))),
       ]);
       return { settings: Object.fromEntries(settings.map((r) => [r.key, r.value])), stations, categories, catalog, presets, media };
     }

@@ -134,7 +134,7 @@
     st.items.forEach((i) => { if (!st.itemsByOrder.has(i.order_id)) st.itemsByOrder.set(i.order_id, []); st.itemsByOrder.get(i.order_id).push(i); });
     st.itemsByOrder.forEach((a) => a.sort((x, y) => x.sort - y.sort));
   }
-  K.VERSION = '18 Oct 2026 · freeze fix v35';
+  K.VERSION = '18 Oct 2026 · start-up check v36';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -432,12 +432,31 @@
   async function boot() {
     if (K.redirecting) return;
     const app = document.getElementById('app');
-    app.innerHTML = '<div class="empty"><div class="big">⏳</div>Loading…</div>';
+    let step = 'Signing in';
+    const t0 = Date.now();
+    app.innerHTML = '<div class="empty"><div class="big">⏳</div>Loading…<div id="bootstep" class="muted" style="font-size:.8em;margin-top:6px"></div></div>';
+    // start-up watchdog: if the database doesn't answer, say what we're waiting for and retry by itself
+    const watch = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000), el = K.$('#bootstep');
+      if (el) el.textContent = `${step}… ${s}s`;
+      if (s >= 20 && !K._bootStuck) {
+        K._bootStuck = true; clearInterval(watch);
+        const pend = [...(window.KDS_PENDING || [])].join(', ');
+        app.innerHTML = `<div class="page lockpage"><div class="big" style="font-size:3em">🛠</div><h2 style="margin:0">The KDS database isn't answering</h2>
+          <p class="muted" style="max-width:560px">Waiting at: <b>${K.esc(step)}</b>${pend ? ` (tables: ${K.esc(pend)})` : ''}. This screen will try again by itself in 20 seconds.</p>
+          <p class="muted" style="max-width:560px;font-size:.9em">If every screen shows this, the problem is in Supabase, not the tablets: open your Supabase project and check it isn't paused, then use <b>Project Settings → General → Restart project</b>.</p>
+          <button class="btn primary" onclick="location.reload()">Try again now</button></div>`;
+        setTimeout(() => location.reload(), 20000);
+      }
+    }, 1000);
     try {
       const ok = await api.init();
-      if (ok === 'offline') return reconnectScreen();
-      if (!ok) return loginScreen();
+      if (ok === 'offline') { clearInterval(watch); return reconnectScreen(); }
+      if (!ok) { clearInterval(watch); return loginScreen(); }
+      step = 'Loading menu, stations and settings';
       await K.loadConfig();
+      clearInterval(watch);
+      if (K._bootStuck) return;
       const CFG = ['stations', 'catalog_items', 'categories', 'kds_settings', 'menu_presets', 'menu_media'];
       api.subscribe((table) => { if (CFG.includes(table)) K.configChanged(); else K.reload(); },
         (ok) => { const was = st.connected; setConn(ok); if (ok && was === false) { K.reload(0); K.configChanged(); } });
@@ -460,6 +479,7 @@
         else if (!st.connected) { K.reload(0); K.configChanged(); }
       }, 60e3);
     } catch (e) {
+      clearInterval(watch);
       console.error(e);
       app.innerHTML = `<div class="page"><h2>Could not start</h2><p class="muted">${K.esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button></div>`;
     }
