@@ -1,17 +1,48 @@
 /* One service worker for the whole site:
  *  - customer order tracker (/track): shows "your order is ready" notifications that arrive by Web Push
  *    (they work with the screen off or the browser closed)
- *  - installed KDS app: if a tablet starts up with no Wi-Fi, shows a "reconnecting" page that retries by
- *    itself instead of the browser's error page. Everything else goes straight to the network (always fresh). */
+ *  - KDS screens: keeps a copy of the app on the tablet so it opens even with no internet (network first,
+ *    so new versions still arrive straight away). Orders, pushes and the relay always go to the network. */
 const OFFLINE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Reconnecting…</title><body style="margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#0f1720;color:#eef2f6;font-family:system-ui,sans-serif;text-align:center;padding:20px">
 <div style="font-size:3em">📶</div><h2 style="margin:0">Reconnecting…</h2><p style="color:#9aa6b5;max-width:420px">No internet on this screen right now. It will open by itself as soon as the Wi-Fi is back.</p>
 <script>setInterval(()=>{fetch('/',{cache:'no-store'}).then(r=>{if(r.ok)location.reload()}).catch(()=>{})},8000);addEventListener('online',()=>location.reload())</script>`;
+// The KDS itself is kept on the tablet, so a tablet with NO internet can still open (or reload) the screens
+// and carry on with the orders it has saved. Always tries the network first, so updates still arrive at once.
+const SHELL = 'kds-shell-v1';
+const SHELL_FILES = ['/', '/styles.css', '/config.js', '/manifest.webmanifest', '/track.html', '/js/vendor/qrcode.js', '/js/vendor/supabase.js',
+  '/js/demo-menu.js', '/js/api.js', '/js/app.js', '/js/screens.js', '/js/pages.js', '/js/charts.js', '/js/reports-sales.js',
+  '/js/pages-menu.js', '/js/auto-update.js', '/icons/kds-192.png', '/icons/track-192.png'];
 self.addEventListener('fetch', (e) => {
-  if (e.request.mode !== 'navigate') return;                     // only page loads; data and files untouched
-  e.respondWith(fetch(e.request).catch(() => new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+  const req = e.request, url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;   // data and the relay always go live
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res.ok && (req.mode === 'navigate' || /\.(js|css|png|webmanifest|html)$/.test(url.pathname))) {
+        const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req.mode === 'navigate' ? navKey(url) : url.pathname, copy)).catch(() => {});
+      }
+      return res;
+    } catch (err) {
+      const c = await caches.open(SHELL);
+      const hit = await c.match(req.mode === 'navigate' ? navKey(url) : url.pathname);
+      if (hit) return hit;
+      if (req.mode === 'navigate') return new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      throw err;
+    }
+  })());
 });
-self.addEventListener('install', () => self.skipWaiting());
+function navKey(url) {
+  const p = url.pathname;
+  if (/^\/(track|order)\b/.test(p)) return '/track.html';
+  if (/^\/(menu-board|menuboard|tv|tvmenu|tv-menu)\b/.test(p)) return '/menu-board.html';
+  if (/^\/(menu-slideshow|slideshow|photos)\b/.test(p)) return '/menu-slideshow.html';
+  return /\.html$/.test(p) ? p : '/';
+}
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(SHELL).then((c) => Promise.all(SHELL_FILES.map((f) => fetch(f, { cache: 'no-store' }).then((r) => r.ok && c.put(f, r)).catch(() => {})))));
+});
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (e) => {
