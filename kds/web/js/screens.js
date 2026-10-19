@@ -4,7 +4,7 @@
 
   const LAYOUTS = {
     station: [['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List'], ['summary', 'Item summary']],
-    window: [['makeline', 'Make line'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
+    window: [['makeline', 'Make line'], ['summary', 'Item summary'], ['tickets', 'Tickets'], ['rail', 'Docket rail'], ['list', 'List']],
     front: [['columns', 'Status columns'], ['tickets', 'Tickets'], ['list', 'List']],
   };
   const DEFAULTS = { layout: null, size: 'm', fs: 1, sort: 'oldest', theme: 'dark', sound: true, vol: 'high', alert: null, sidebar: false, others: true, coming: true };
@@ -326,13 +326,17 @@
     if (S.ghosts.size && !S.timer) S.timer = setTimeout(() => { S.timer = null; if (K.curCtx === ctx && K.$('#wrap')) drawBoard(ctx); }, GHOST_MS + 50);
     return S.order.map((k) => ({ key: k, ghost: !have.has(k) }));
   }
+  // Item summary: kitchen stations (units still to make) and the order window (units ready to finish)
   function summaryView(model, ctx) {
+    const win = ctx.kind === 'window', stage = win ? 'window' : 'prep';
     const groups = new Map();
-    model.forEach((m) => m.pending.forEach((it) => {
+    model.forEach((m) => (win ? m.items : m.pending).forEach((it) => {
       if (m.o.status === 'cancelled') return;
+      const rem = win ? it.qty_prep - it.qty_window : it.qty - it.qty_prep;
+      if (rem <= 0) return;
       const key = it.item_name + '|' + (it.variation_name || '');
       if (!groups.has(key)) groups.set(key, { name: it.item_name, variation: it.variation_name, total: 0, rows: [] });
-      const g = groups.get(key); const rem = it.qty - it.qty_prep; g.total += rem; g.rows.push({ o: m.o, it, rem });
+      const g = groups.get(key); g.total += rem; g.rows.push({ o: m.o, it, rem });
     }));
     groups.forEach((g) => g.rows.sort((a, b) => new Date(a.o.received_at) - new Date(b.o.received_at)));   // oldest order first
     const oldest = (k) => new Date(groups.get(k).rows[0].o.received_at).getTime();
@@ -342,11 +346,11 @@
     groups.forEach((g, k) => { ctx.ghostNames[k] = g.name + (g.variation ? ' · ' + g.variation : ''); });
     return seq.map(({ key, ghost }) => ghost ? `<div class="sgroup ghost"><div class="shead"><span class="n">✓</span><span class="nm">${esc(ctx.ghostNames[key] || '')}</span><span class="muted">done</span></div></div>` : groups.get(key)).map((g) => typeof g === 'string' ? g : `
       <div class="sgroup ${g.rows.some((r) => isNew(r.it.id)) ? 'has-new' : ''}"><div class="shead"><span class="n">${g.total}</span><span class="nm">${esc(g.name)}${g.variation ? ` · ${esc(g.variation)}` : ''}</span>
-        <button class="btn ok bump1" data-act="bump" data-sig="b1:${esc(g.name)}|${esc(g.variation || '')}" data-item="${g.rows[0].it.id}" data-stage="prep" data-n="1" title="Push one of this item, oldest order first">Bump 1 · ${esc(ono(g.rows[0].o))}</button></div>
+        <button class="btn ok bump1" data-act="bump" data-sig="b1:${esc(g.name)}|${esc(g.variation || '')}" data-item="${g.rows[0].it.id}" data-stage="${stage}" data-n="1" title="${win ? 'Finish' : 'Push'} one of this item, oldest order first">${win ? 'Finish 1' : 'Bump 1'} · ${esc(ono(g.rows[0].o))}</button></div>
         <div class="chips">${g.rows.map((r) => {
           const mods = (r.it.modifiers || []).filter((x) => !PACK_WORDS.test(String(x).trim()));
-          return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="all">
-            <span class="c1">${isNew(r.it.id) ? '<span class="newtag">NEW</span>' : ''}${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="prep" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
+          return `<div role="button" class="chip ${isNew(r.it.id) ? 'is-new' : ''} ${r.o.is_online ? 'online' : ''} ${K.ageClass(r.o.received_at, ctx.th)}" data-act="bump" data-item="${r.it.id}" data-stage="${stage}" data-n="all">
+            <span class="c1">${isNew(r.it.id) ? '<span class="newtag">NEW</span>' : ''}${esc(ono(r.o))} ${r.rem > 1 ? `<span class="qty qtap cq" data-act="bump" data-item="${r.it.id}" data-stage="${stage}" data-n="1" title="Tap to clear 1"><span>×${r.rem}</span><em>−1</em></span>` : '× 1'}</span>
             <span class="c2">${timerHtml(r.o.received_at, ctx.th).replace('class="timer', 'class="')}${showPack(r.it) ? ' · ' + packLabel(r.it.pack) : ''}</span>
             ${mods.length || r.it.note ? `<span class="cmods">${mods.map((x) => `<span class="cmod">${esc(x)}</span>`).join('')}${r.it.note ? `<span class="cmod note">“${esc(r.it.note)}”</span>` : ''}</span>` : ''}</div>`;
         }).join('')}</div></div>`).join('');
@@ -600,7 +604,7 @@
       html = `<div class="ftab-wrap dens-${dens}" style="font-size:${fs}">${tabs}${body}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
-    } else if (p.layout === 'summary' && kind === 'station') {
+    } else if (p.layout === 'summary' && (kind === 'station' || kind === 'window')) {
       html = `<div class="board tickets size-${p.size === 's' ? 'm' : 'l'}">${summaryView(model, ctx)}</div>`;
     } else if (p.layout === 'list') {
       // rows stay put while tapping; a finished order leaves a short "done" placeholder
