@@ -639,3 +639,22 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 /* offline mode banner */
 .banner.offline-banner{background:#7a1f1f;color:#fff;border-color:#a83232;font-size:1.02em}
 .banner.offline-banner b{color:#fff}
+
+/* ---- simple & safe: Undo button, help guide, tidy settings ---- */
+.iconbtn.undo-btn{background:var(--accent);color:#1b1100;border-color:var(--accent);font-weight:900;max-width:min(46vw,420px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;animation:undoin .25s ease}
+.iconbtn.undo-btn small{font-weight:700;opacity:.85;margin-left:4px}
+@keyframes undoin{from{transform:scale(.85);opacity:0}to{transform:none;opacity:1}}
+.help{display:flex;flex-direction:column;gap:12px}
+.help-row{display:flex;gap:14px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--card2)}
+.help-ic{font-size:1.8em;min-width:1.6em;text-align:center}
+.help-row b{font-size:1.08em}
+.help-colours{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.more-settings{margin:6px 0 12px;border-top:1px solid var(--line);padding-top:10px}
+.more-settings summary{cursor:pointer;font-weight:800;color:var(--muted);padding:6px 0;list-style:none}
+.more-settings[open] summary{color:var(--text)}
+.t-items{gap:6px}                                  /* a little more space between items = fewer wrong taps */
+.iconbtn[hidden]{display:none!important}
+/* pack label (Take away / Dine-in) sits under the item name everywhere, so names have the full width and nothing gets cut off */
+.ticket .item,.lrow .item{grid-template-columns:auto minmax(0,1fr)}
+.ticket .item .iright,.lrow .item .iright{grid-column:2;justify-self:start;display:flex;gap:6px;align-items:center}
+.ticket .item .iright:empty,.lrow .item .iright:empty{display:none}

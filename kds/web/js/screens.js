@@ -455,7 +455,9 @@
         <span class="grow"></span>
         <span class="conn ${st.connected ? '' : 'off'}" title="Live connection"></span>
         <span class="clock"></span>
+        <button class="iconbtn undo-btn" id="undo" data-top="undo" hidden title="Undo your last push on this screen"></button>
         <button class="iconbtn" data-top="recall" title="Recall a bumped item">↺ Recall</button>
+        <button class="iconbtn" data-top="help" title="How to use this screen">?</button>
         ${kind !== 'front' ? '<button class="iconbtn" data-top="avail" title="Item availability — switch items on / sold out">Sold out</button>' : ''}
         <button class="iconbtn" data-top="settings" title="Layout & display">⚙</button>
         <button class="iconbtn" data-top="fs" title="Full screen">⛶</button>
@@ -470,6 +472,8 @@
       if (a === 'fs') { const on = !document.fullscreenElement; on ? document.documentElement.requestFullscreen?.().catch(() => {}) : document.exitFullscreen(); ss('kds-fs', on ? '1' : '0'); }
       if (a === 'settings') settingsDrawer(ctx);
       if (a === 'recall') recallDrawer(ctx);
+      if (a === 'undo') doUndo(ctx);
+      if (a === 'help') helpDrawer(ctx);
       if (a === 'avail') location.hash = `#/availability${station ? '?station=' + station.id : ''}`;
     };
     let down = null;
@@ -486,6 +490,8 @@
     };
     startOverlay(ctx);
     drawBoard(ctx);
+    clearInterval(K._undoTick); K._undoTick = setInterval(() => { if (K.curCtx === ctx) paintUndo(ctx); }, 5000);
+    try { if (!localStorage.getItem('kds.help.' + kind)) { localStorage.setItem('kds.help.' + kind, '1'); setTimeout(() => { if (!document.querySelector('.start')) helpDrawer(ctx); }, 1500); } } catch (_) {}
   }
 
   // never let one bad render freeze a screen: show a note and reload the page by itself
@@ -502,6 +508,7 @@
     }
   }
   function drawBoardInner(ctx) {
+    paintUndo(ctx);
     const { kind, station, p } = ctx;
     if (!K.$('#wrap')) return;
     ctx.th = K.thresholds(station);
@@ -669,14 +676,40 @@
   const findOrder = (id) => st.orders.find((o) => o.id === id);
   const stationFilter = (ctx) => (ctx.kind === 'station' ? ctx.station.id : null);
 
-  async function undoItem(ctx, itemId, stage) {
+  async function undoItem(ctx, itemId, stage, since) {
     const evs = await api.recentEvents(stage, stationFilter(ctx), 15);
-    const e = evs.find((x) => x.order_item_id === itemId);
-    if (!e) throw new Error('Nothing to undo');
-    await api.recall(e.id, ctx.key);
+    const mine = evs.filter((x) => x.order_item_id === itemId && (!since || new Date(x.at) >= since - 3000));
+    if (!mine.length) throw new Error('Nothing to undo');
+    for (const e of since ? mine : mine.slice(0, 1)) await api.recall(e.id, ctx.key);
   }
-  async function undoOrder(ctx, orderId, stage) {
-    const evs = (await api.recentEvents(stage, stationFilter(ctx), 3)).filter((x) => x.order_id === orderId);
+  // ---- Undo button: the last pushes made on THIS screen, newest first (kept 2 minutes)
+  const UNDO_MS = 120e3;
+  function rememberUndo(ctx, entry) {
+    ctx.undo = (ctx.undo || []).filter((u) => Date.now() - u.at < UNDO_MS);
+    ctx.undo.unshift(entry); ctx.undo = ctx.undo.slice(0, 10);
+    paintUndo(ctx);
+  }
+  function paintUndo(ctx) {
+    const b = K.$('#undo'); if (!b) return;
+    ctx.undo = (ctx.undo || []).filter((u) => Date.now() - u.at < UNDO_MS);
+    const u = ctx.undo[0];
+    b.hidden = !u || K.offline;
+    if (u) b.innerHTML = `↶ Undo <small>${esc(u.label)}</small>`;
+  }
+  async function doUndo(ctx) {
+    const u = (ctx.undo || [])[0]; if (!u) return;
+    const b = K.$('#undo'); if (b) b.disabled = true;
+    try {
+      if (u.orderId) await undoOrder(ctx, u.orderId, u.stage, u.at);
+      else for (const id of u.items) await undoItem(ctx, id, u.stage, u.at);
+      ctx.undo.shift(); K.toast(`Undone — ${u.label} is back on screen`);
+    } catch (err) { K.toast(err.message === 'Nothing to undo' ? 'That push can no longer be undone here — use Recall' : err.message, { error: true }); ctx.undo.shift(); }
+    if (b) b.disabled = false;
+    paintUndo(ctx); K.reload(0);
+  }
+  async function undoOrder(ctx, orderId, stage, since) {
+    const evs = (await api.recentEvents(stage, stationFilter(ctx), 5)).filter((x) => x.order_id === orderId && (!since || new Date(x.at) >= since - 3000));
+    if (!evs.length) throw new Error('Nothing to undo');
     for (const e of evs) await api.recall(e.id, ctx.key);
   }
 
@@ -693,25 +726,31 @@
       if (act === 'bump') {
         const it = findItem(el.dataset.item); const o = it && findOrder(it.order_id);
         const force = el.dataset.force === '1';
+        const t0 = Date.now();
         const n = await api.bump(el.dataset.item, el.dataset.stage, el.dataset.n === 'all' ? null : +el.dataset.n, ctx.key, force);
         if (!n) K.toast('Nothing left to bump on that item');
+        else if (it) rememberUndo(ctx, { at: t0, stage: el.dataset.stage, items: [it.id], label: `${n}× ${it.item_name} · ${ono(o || {})}` });
       } else if (act === 'batch') {
         const parts = el.dataset.items.split('|').map((x) => x.split(':'));
         let n = 0;
+        const t0 = Date.now();
         for (const [id, q] of parts) n += await api.bump(id, 'window', +q, ctx.key, el.dataset.force === '1');
         const it = findItem(parts[0][0]);
+        if (n && it) rememberUndo(ctx, { at: t0, stage: 'window', items: parts.map((x) => x[0]), label: `${n}× ${it.item_name}` });
 
       } else if (act === 'handover') {
         const o = findOrder(el.dataset.order);
-        const allReady = allWindowDone(o); let n = 0;
+        const allReady = allWindowDone(o); let n = 0; const t0 = Date.now();
         for (const it of liveItems(o)) {
           const q = it.qty_window - it.qty_front;
           if (q > 0 && (allReady || !K.isHeld(it))) n += await api.bump(it.id, 'front', q, ctx.key, false);
         }
+        if (n) rememberUndo(ctx, { at: t0, stage: 'front', orderId: o.id, label: `${ono(o)} — handed over` });
 
       } else if (act === 'order') {
-        const o = findOrder(el.dataset.order);
+        const o = findOrder(el.dataset.order); const t0 = Date.now();
         const n = await api.bumpOrder(el.dataset.order, el.dataset.stage, stationFilter(ctx), ctx.key, false);
+        if (n) rememberUndo(ctx, { at: t0, stage: el.dataset.stage, orderId: o.id, label: `${ono(o)} — ${{ prep: 'done', window: 'finished', front: 'picked up' }[el.dataset.stage]}` });
         const verb = { prep: 'done', window: 'finished', front: 'collected' }[el.dataset.stage];
 
       } else if (act === 'force') {
@@ -736,11 +775,12 @@
     const seg = (name, opts) => `<div class="seg" data-pref="${name}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(p[name]) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     K.drawer('Display settings', `
       <div class="field"><label>Layout</label>${seg('layout', LAYOUTS[ctx.kind])}</div>
-      <div class="field"><label>Card size</label>${seg('size', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']])}</div>
       <div class="field"><label>Text size</label>${seg('fs', [['0.9', 'A−'], ['1', 'A'], ['1.15', 'A+'], ['1.3', 'A++']])}</div>
-      <div class="field"><label>Order sorting</label>${seg('sort', [['oldest', 'Oldest first'], ['newest', 'Newest first'], ['online', 'Online first'], ...(ctx.kind === 'window' ? [['ready', 'Ready first']] : [])])}</div>
       <div class="field"><label>Theme</label>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
       <div class="field"><label>Chime when items drop in</label>${seg('sound', [['true', 'On'], ['false', 'Off']])}</div>
+      <details class="more-settings"><summary>More settings ▸</summary>
+      <div class="field"><label>Card size</label>${seg('size', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']])}</div>
+      <div class="field"><label>Order sorting</label>${seg('sort', [['oldest', 'Oldest first'], ['newest', 'Newest first'], ['online', 'Online first'], ...(ctx.kind === 'window' ? [['ready', 'Ready first']] : [])])}</div>
       <div class="field"><label>New order alert (flashing banner)</label><div class="row">${seg('alert', [['tap', 'Until tapped'], ['15', '15 seconds'], ['off', 'Off']])}<button class="btn sm" id="alert-test">Test</button></div></div>
       <div class="field"><label>Chime volume</label><div class="row">${seg('vol', [['low', 'Low'], ['med', 'Medium'], ['high', 'Loud']])}<button class="btn sm" id="snd-test">🔔 Test</button></div></div>
       ${ctx.kind !== 'front' ? `<div class="field"><label>All-day count sidebar</label>${seg('sidebar', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
@@ -748,6 +788,7 @@
       ${ctx.kind === 'window' ? `<div class="field"><label>"Still in the kitchen" strip (orders not ready yet)</label>${seg('coming', [['true', 'Show'], ['false', 'Hide']])}</div>` : ''}
       ${ctx.kind === 'station' ? `<div class="field"><label>"Items at other stations" hint</label>${seg('others', [['true', 'Show'], ['false', 'Hide']])}</div>
       <div class="field"><label>Items already bumped</label>${seg('hideDone', [['false', 'Show faded'], ['true', 'Hide']])}</div>` : ''}
+      </details>
       <p class="muted" style="font-size:.85em">Settings are saved on this screen/device only.</p>`, (w) => {
       w.querySelector('.body').onclick = (e) => {
         if (e.target.closest('#alert-test')) {
@@ -769,6 +810,34 @@
         if (name === 'vol') { K.unlockAudio(); setTimeout(() => K.beep('new', v), 60); }
       };
     });
+  }
+
+  // simple picture guide for staff, per screen
+  function helpDrawer(ctx) {
+    const k = ctx.kind, row = (icon, t, d) => `<div class="help-row"><div class="help-ic">${icon}</div><div><b>${t}</b><div class="muted">${d}</div></div></div>`;
+    const how = {
+      station: [
+        row('👆', 'Tap an item', 'Marks the whole item as done (all of them).'),
+        row('<span class="qty multi qtap" style="font-size:.8em"><span>2</span><em>−1</em></span>', 'Tap the orange number', 'Marks just ONE as done — for when you send part of it.'),
+        row('✅', 'DONE button', 'Marks everything on that order for your station as done.'),
+        row('↶', 'Undo (top bar)', 'Pushed the wrong one? Tap Undo straight away — it puts it back.'),
+      ],
+      window: [
+        row('👆', 'Tap a ready item', 'Finishes all of it for that order.'),
+        row('<span class="qty multi qtap" style="font-size:.8em"><span>2</span><em>−1</em></span>', 'Tap the orange number / Finish 1', 'Finishes just ONE, oldest order first.'),
+        row('🍳', '"Still in the kitchen"', 'Faded cards at the top are still being made — nothing to do yet.'),
+        row('↶', 'Undo (top bar)', 'Finished the wrong one? Tap Undo straight away.'),
+      ],
+      front: [
+        row('✅', 'Now serving tab', 'Orders ready to hand over. Green = all ready, orange = part ready.'),
+        row('👆', 'Tap an item / COLLECTED', 'Hands over that item / the whole order.'),
+        row('🔴', 'Red “Not collected”', 'Call the number again — the customer hasn’t picked it up.'),
+        row('↶', 'Undo (top bar)', 'Marked the wrong order? Tap Undo straight away.'),
+      ],
+    }[k] || [];
+    K.drawer('How to use this screen', `<div class="help">${how.join('')}
+      <div class="help-colours"><b>Timer colours</b><span class="pill" style="background:var(--ok);color:#06210f">on time</span><span class="pill" style="background:var(--warn);color:#1f1300">getting late</span><span class="pill" style="background:var(--late);color:#fff">late</span></div>
+      <p class="muted" style="font-size:.85em;margin-bottom:0">Open this again any time with the <b>?</b> button at the top.</p></div>`);
   }
 
   async function recallDrawer(ctx) {
