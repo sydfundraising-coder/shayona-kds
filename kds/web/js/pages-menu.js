@@ -157,15 +157,9 @@
       catch (err) { K.toast(err.message, { error: true }); }
     };
     K.$('#mpause').onclick = async (e) => {
-      const b = e.target.closest('[data-svc]'); if (!b || pauseBusy) return;
-      const act = b.dataset.svc;
-      try {
-        if (act === 'break') await startBreak();
-        else if (act === 'back') await endBreak();
-        else if (act === 'close') await closeDay();
-        else if (act === 'open') await markOpen();
-      } catch (err) { K.toast(err.message, { error: true }); }
-      finally { pauseBusy = false; draw(); }
+      const b = e.target.closest('[data-svc]'); if (!b) return;
+      await runPause({ break: startBreak, back: endBreak, close: closeDay, open: markOpen }[b.dataset.svc]);
+      draw();
     };
     draw();
   }
@@ -174,15 +168,25 @@
   // The list of items that were on before a break is kept in the database (kds_settings.service_pause),
   // so "Back from break" works from any tablet, even after a reload.
   let pauseBusy = false;
+  async function runPause(fn) {
+    if (pauseBusy || !fn) return;
+    try { await fn(); } catch (err) { K.toast(err.message, { error: true }); } finally { pauseBusy = false; }
+  }
   const pauseState = () => { const v = st.cfg.settings && st.cfg.settings.service_pause; return v && (v.mode === 'break' || v.mode === 'closed') ? v : null; };
   const hm = (iso) => { const d = new Date(iso); const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t; };
   const toRestore = (p) => (p.ids || []).filter((id) => st.cfg.catalog.some((c) => c.variation_id === id && !c.available && onMenu(c)));
   async function savePause(v) { await api.setMenuSetting('service_pause', v); st.cfg.settings.service_pause = v; }
-  async function setNotice(kind) {
+  async function setNotice(kind, opt) {
     const cur = st.cfg.settings.menu_notice || {};
     let v;
-    if (kind) v = { active: true, ...NOTICES[kind] };
+    if (kind) {
+      v = { active: true, ...NOTICES[kind] };
+      if (opt) {
+        v.hours = !!opt.hours;
+        if (kind === 'break' && opt.back) v.message = `We'll be back at ${opt.back}.\nThank you for your patience.`;
+      }
+    }
     else if (cur.active && [NOTICES.break.title, NOTICES.closed.title].includes(cur.title)) v = { ...cur, active: false };   // only take down our own notice
     if (!v) return;
     try { await api.setMenuSetting('menu_notice', v); st.cfg.settings.menu_notice = v; } catch (err) { K.toast('TV notice: ' + err.message, { error: true }); }
@@ -208,26 +212,41 @@
     const el = K.$('#mpause'); if (el) el.innerHTML = `<div class="svc svc-busy"><div class="svc-txt"><b>${esc(label)}</b><span>Updating Square — keep this screen open…</span></div></div>`;
   }
   // confirm with a "show on the TV screens" tick box
+  const fmtT = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const backIn = (m) => { const d = new Date(Date.now() + m * 60000); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0); return fmtT(d); };
   const askNotice = (title, text, kind, okLabel, danger) => new Promise((res) => {
+    const backOpts = kind === 'break' ? `<div class="svc-opt" id="svcbo"><label>Back at</label><select id="svcb"><option value="">Just “Back shortly”</option>
+        ${[15, 30, 45, 60, 90].map((m) => `<option value="${esc(backIn(m))}">${backIn(m)} (in ${m < 60 ? m + ' min' : m / 60 + ' hr'})</option>`).join('')}
+        <option value="pick">Pick a time…</option></select><input type="time" id="svct" hidden></div>` : '';
     K.modal(title, `<div class="muted">${text}</div>
       <label class="row" style="margin:14px 0 4px;gap:10px;cursor:pointer"><input type="checkbox" id="svcn" checked style="width:22px;height:22px"> Show “${esc(NOTICES[kind].title)}” on the TV screens</label>
+      <div id="svcopts" style="padding-left:32px">${backOpts}
+        <label class="row" style="margin:8px 0 0;gap:10px;cursor:pointer"><input type="checkbox" id="svch" ${kind === 'closed' || kind === 'break' ? 'checked' : ''} style="width:20px;height:20px"> Show our opening hours</label></div>
       <div class="actions"><button class="btn" data-x="0">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" data-x="1">${esc(okLabel)}</button></div>`, (w, close) => {
       w.addEventListener('click', (e) => { if (e.target === w) res(null); });
-      w.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => { const ok = b.dataset.x === '1'; const notice = K.$('#svcn', w).checked; close(); res(ok ? { notice } : null); }));
+      const sb = K.$('#svcb', w), stm = K.$('#svct', w);
+      if (sb) sb.onchange = () => { stm.hidden = sb.value !== 'pick'; if (!stm.hidden) stm.focus(); };
+      K.$('#svcn', w).onchange = () => { K.$('#svcopts', w).style.opacity = K.$('#svcn', w).checked ? 1 : 0.4; };
+      w.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => {
+        const ok = b.dataset.x === '1'; const notice = K.$('#svcn', w).checked; const hours = K.$('#svch', w).checked;
+        let back = sb ? sb.value : '';
+        if (back === 'pick') { const [h, m] = (stm.value || '').split(':').map(Number); back = stm.value ? fmtT(new Date(2000, 0, 1, h, m)) : ''; }
+        close(); res(ok ? { notice, hours, back } : null);
+      }));
     });
   });
 
   async function startBreak() {
+    if (pauseState()?.mode === 'break') return K.toast('Already on break — tap Back from break when you return');
     const ids = menuItems().filter((c) => c.available).map((c) => c.variation_id);
-    if (!ids.length) return K.toast('Nothing is available right now');
+    if (!ids.length && !(await K.confirm('Nothing is available right now', 'Start the break anyway? (Only the TV notice changes.)', 'Start break'))) return;
     const ok = await askNotice('Start break?', `<b>${ids.length}</b> available item${ids.length === 1 ? '' : 's'} will be switched to sold out in Square, so online customers can't order.<br><br>
       When you tap <b>Back from break</b>, exactly these items come back on. Items already sold out stay sold out.`, 'break', 'Start break');
     if (!ok) return;
     setWorking('Starting break…');
     await savePause({ mode: 'break', at: new Date().toISOString(), ids, by: api.user?.email || null });   // remember the list first
-    if (ok.notice) await setNotice('break');
-    const res = await runAvailability(ids.map((id) => ({ variation_id: id, available: false })));
-    if (!res.failed?.length) K.toast(`On break — ${ids.length} item(s) sold out in Square`);
+    if (ok.notice) await setNotice('break', ok);
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false }))) : { failed: [] };
   }
   async function endBreak() {
     const p = pauseState(); if (!p || p.mode !== 'break') return;
@@ -250,9 +269,8 @@
     if (!ok) return;
     setWorking('Closing for the day…');
     await savePause({ mode: 'closed', at: new Date().toISOString(), by: api.user?.email || null });
-    if (ok.notice) await setNotice('closed');
+    if (ok.notice) await setNotice('closed', ok);
     const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false }))) : { failed: [] };
-    if (!res.failed?.length) K.toast('Closed — everything is sold out in Square');
   }
   async function markOpen() {
     setWorking('Opening…');
@@ -300,7 +318,9 @@
       </div>
       <div class="card"><h2 style="margin-top:0">Screen notice</h2>
         <p class="muted" style="font-size:.88em">Full-screen message on the TV menu and slideshow.
-        ${n.active ? `<br><b style="color:var(--warn)">Showing now: ${esc(n.title)}</b>` : '<br>No notice showing.'}</p>
+        ${n.active ? `<br><b style="color:var(--warn)">Showing now: ${esc(n.title)}</b>` : '<br>No notice showing.'}
+        <br><span style="font-size:.95em"><b>On a Break</b> and <b>Closed for the day</b> also switch items to sold out in Square (same as the buttons on <i>Items &amp; availability</i>).
+        ${pauseState()?.mode === 'break' ? '<br><b style="color:var(--warn)">On break now — Clear (reopen) switches the same items back on.</b>' : pauseState()?.mode === 'closed' ? '<br><b style="color:var(--late)">Closed now — Clear (reopen) only takes the notice down; switch items on yourself.</b>' : ''}</span></p>
         <div class="row" style="flex-wrap:wrap"><button class="btn" data-notice="break">On a Break</button><button class="btn" data-notice="aarti">Aarti</button>
           <button class="btn" data-notice="closed">Closed for the day</button><button class="btn" data-notice="custom">Custom…</button>
           <button class="btn ok" data-notice="clear">Clear (reopen)</button></div>
@@ -337,6 +357,11 @@
       const nb = e.target.closest('[data-notice]');
       if (nb) {
         const k = nb.dataset.notice;
+        if (k === 'break' || k === 'closed' || (k === 'clear' && pauseState())) {
+          const p = pauseState();
+          const fn = k === 'break' ? startBreak : k === 'closed' ? closeDay : p.mode === 'break' ? endBreak : markOpen;
+          await runPause(fn); tabScreens(); return;
+        }
         if (k === 'clear') return setting('menu_notice', { active: false, title: '', message: '', hours: false }, 'Notice cleared — screens reopened');
         if (k === 'custom') {
           return K.modal('Custom notice', `<div class="field"><label>Title</label><input id="nt" maxlength="120" placeholder="We'll be back at 5pm"></div>

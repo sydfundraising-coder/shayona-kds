@@ -367,7 +367,7 @@
     };
     relayTimer = setTimeout(tick, 300);
   }
-  K.VERSION = '24 Oct 2026 · break & close v45';
+  K.VERSION = '24 Oct 2026 · break & close v46';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {

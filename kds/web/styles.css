@@ -678,3 +678,5 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .svc-home{margin:14px 0 0}
 .svc-home:hover{filter:brightness(1.05)}
 .svc-txt span b{font-size:inherit}
+.svc-opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 0}
+.svc-opt select,.svc-opt input{min-height:40px}
