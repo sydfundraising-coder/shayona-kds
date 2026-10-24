@@ -1,0 +1,13 @@
+{
+  "name": "Shayona Cafe · My order",
+  "short_name": "Shayona",
+  "description": "Get told the moment your Shayona Cafe order is ready",
+  "display": "standalone",
+  "scope": "/",
+  "background_color": "#f6f4ef",
+  "theme_color": "#e8791a",
+  "icons": [
+    { "src": "/icons/track-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/track-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
