@@ -260,7 +260,9 @@
     const items = visibleItems(m, kind, ctx.p);
     const hasNew = m.items.some((i) => isNew(i.id));
     const uc = kind === 'front' && uncollected(o);
-    return `<div class="ticket ${hasNew ? 'has-new' : ''} ${uc ? 'uncollected' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
+    const packs = new Set(m.items.filter((i) => !i.removed && showPack(i)).map((i) => (i.pack === 'BOX' ? 'BOX' : 'PLATE')));
+    const onePack = packs.size <= 1;     // every item is dine-in (or every item take away): the order badge already says it
+    return `<div class="ticket ${onePack ? 'one-pack' : ''} ${hasNew ? 'has-new' : ''} ${uc ? 'uncollected' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${allReady ? 'all-ready' : ''} ${partReady ? 'part-ready' : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
       ${head(o, th)}${uc ? `<div class="uc-badge">⚠ Not collected · ready for <span data-since="${esc(readySince(o))}">${K.mmss(uc)}</span></div>` : ''}${badges(o)}${o.note ? `<div class="t-note">${esc(o.note)}</div>` : ''}
       <ul class="t-items">${items.map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}${!items.length && !(kind === 'front' && m.items.some((i) => i.qty_window < i.qty)) ? '<li class="t-other" style="padding:6px">Nothing ready yet</li>' : ''}</ul>
       ${kind === 'station' && ctx.p.others && m.others ? `<div class="t-other">+ ${m.others} item(s) at other stations</div>` : ''}
@@ -612,7 +614,7 @@
             ${rest.map((m) => ticket(m, kind, ctx)).join('') || (late.length ? '' : '<div class="muted" style="padding:16px">Nothing ready right now</div>')}</div></div>`;
       // the more orders on the open tab, the smaller each card, so more fit on the screen
       const n = tab === 'prep' ? prepRows.length : rows.length;
-      const dens = n <= 4 ? 1 : n <= 8 ? 2 : n <= 14 ? 3 : 4;
+      const dens = n <= 8 ? 2 : n <= 14 ? 3 : 4;      // always the compact cards (the big size only fitted 3 across)
       html = `<div class="ftab-wrap dens-${dens}" style="font-size:${fs}">${tabs}${body}</div>`;
     } else if (p.layout === 'makeline' && kind === 'window') {
       html = `<div class="board makeline">${makeLineView(model, ctx)}</div>`;
