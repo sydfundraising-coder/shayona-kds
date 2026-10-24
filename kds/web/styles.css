@@ -658,3 +658,8 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .ticket .item,.lrow .item{grid-template-columns:auto minmax(0,1fr)}
 .ticket .item .iright,.lrow .item .iright{grid-column:2;justify-self:start;display:flex;gap:6px;align-items:center}
 .ticket .item .iright:empty,.lrow .item .iright:empty{display:none}
+
+/* online orders called by name */
+.ono.oname{font-size:1.25em;max-width:12em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:0}
+.pboard .num .pb-name{font-size:.62em;white-space:nowrap}
+.t-head .ono.oname,.pc-h .ono.oname{font-size:1.5em}

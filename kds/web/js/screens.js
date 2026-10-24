@@ -59,7 +59,12 @@
   K.readySince = readySince; K.uncollected = uncollected;
 
   // ------------------------------------------------------------------ small renderers
-  const ono = (o) => { const n = String(o.order_no ?? o.kds_seq ?? ''); return /^\d+$/.test(n) ? '#' + n : n; };
+  // online orders are called by the customer's NAME (that's what Square Online shows them); walk-ins by number
+  const byName = (o) => !!(o && o.is_online && String(o.customer_name || '').trim());
+  const ono = (o) => { if (byName(o)) return String(o.customer_name).trim(); const n = String(o.order_no ?? o.kds_seq ?? ''); return /^\d+$/.test(n) ? '#' + n : n; };
+  const onoHtml = (o) => `<span class="ono${byName(o) ? ' oname' : ''}">${esc(ono(o))}</span>`;
+  const whoHtml = (o) => (o.customer_name && !byName(o) ? `<span class="who">${esc(o.customer_name)}</span>` : '');
+  K.ono = ono; K.byName = byName;
   const modClass = (m) => /spicy|chilli|hot/i.test(m) ? 'hot' : /jain/i.test(m) ? 'jain' : '';
   const PACK_WORDS = /^(take ?away|takeaway|box|to go|plate|dine in|eat in|for here)$/i;
   function modsHtml(it) {
@@ -91,7 +96,7 @@
     return `<div class="t-sub">${b.join('')}</div>`;
   }
   function head(o, th) {
-    return `<div class="t-head"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}${timerHtml(o.received_at, th)}</div>`;
+    return `<div class="t-head">${onoHtml(o)}${whoHtml(o)}${timerHtml(o.received_at, th)}</div>`;
   }
 
   let curNew = new Map();     // items that just dropped in on the current screen (NEW tag)
@@ -279,7 +284,7 @@
       return `<div class="pc-it"><span class="pc-q${rem > 1 ? ' multi' : ''}">${rem}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}<span class="pc-s">${st}</span></span></div>`;
     };
     return `<div class="pcard ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''} ${cancelled ? 'cancelled' : ''} ${ctx.fresh.has(o.id) ? 'new-flash' : ''}" data-order="${o.id}">
-      <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}
+      <div class="pc-h">${onoHtml(o)}${whoHtml(o)}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}
         <button class="iconbtn sm" data-act="${cancelled ? 'dismiss' : 'force'}" data-order="${o.id}" data-stage="front" title="${cancelled ? 'Dismiss' : 'More'}">${cancelled ? '✕' : '⋮'}</button></div>
       <div class="pc-b">${badges(o)}</div>
       ${its.map(line).join('')}
@@ -305,7 +310,7 @@
     const t = ticket(m, kind, ctx);
     const foot = t.match(/<div class="t-foot">([\s\S]*)<\/div><\/div>$/)?.[1] || '';
     return `<div class="lrow ${m.items.some((i) => isNew(i.id)) ? 'has-new' : ''} ${o.is_online ? 'online' : ''} ${ageCls ? 'st-' + ageCls : ''}" data-order="${o.id}">
-      <div class="lhead"><span class="ono">${esc(ono(o))}</span>${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
+      <div class="lhead">${onoHtml(o)}${timerHtml(o.received_at, ctx.th)}${badges(o).replace('t-sub', 'mods')}</div>
       <ul class="t-items litems" style="padding:0">${visibleItems(m, kind, ctx.p).map((it) => itemRow(o, it, kind, cancelled)).join('')}${kind === 'front' && !cancelled ? pendingRows(o, m.items) : ''}</ul>
       <div class="row">${foot}</div></div>`;
   }
@@ -405,7 +410,7 @@
       } else {
         const one = (r) => `<button class="mrow ${r.o.is_online ? 'online' : ''}" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="all">
             ${r.n > 1 ? `<span class="qty qtap mq" data-act="bump" data-item="${r.it.id}" data-stage="window" data-n="1" title="Tap to clear 1"><span>${r.n}</span><em>−1</em></span>` : '<span class="qty mq"><span>1</span></span>'}
-            <span class="mono">${esc(ono(r.o))}${r.o.customer_name ? `<small>${esc(r.o.customer_name)}</small>` : ''}</span>
+            <span class="mono">${esc(ono(r.o))}${r.o.customer_name && !byName(r.o) ? `<small>${esc(r.o.customer_name)}</small>` : ''}</span>
             <span class="mbody">${detail(r.it)}${r.last ? '<span class="pill badge-online lastflag">LAST ITEM · order complete</span>' : ''}</span>
             ${timerHtml(r.o.received_at, ctx.th)}</button>`;
         rows = g.ready.map(one).join('');
@@ -659,7 +664,7 @@
     if (ctx.p.coming === false || ctx.p.coming === 'false') return note ? `<div class="coming">${note}</div>` : '';
     return `<div class="coming"><div class="coming-h">Still in the kitchen <span class="pill badge-walkin">${list.length} order${list.length > 1 ? 's' : ''} · ${units} item${units > 1 ? 's' : ''}</span></div>
       <div class="pgrid coming-grid">${list.map(({ o, its }) => `<div class="pcard ${o.is_online ? 'online' : ''} ${K.ageClass(o.received_at, ctx.th) ? 'st-' + K.ageClass(o.received_at, ctx.th) : ''}">
-        <div class="pc-h"><span class="ono">${esc(ono(o))}</span>${o.customer_name ? `<span class="who">${esc(o.customer_name)}</span>` : ''}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}</div>
+        <div class="pc-h">${onoHtml(o)}${whoHtml(o)}<span class="grow"></span>${timerHtml(o.received_at, ctx.th)}</div>
         ${its.map((i) => `<div class="pc-it"><span class="pc-q${i.qty - i.qty_prep > 1 ? ' multi' : ''}">${i.qty - i.qty_prep}×</span><span class="pc-n">${esc(i.item_name)}${i.variation_name ? ` <span class="ivar">· ${esc(i.variation_name)}</span>` : ''}${modsHtml(i)}<span class="pc-s">${tag(i)}</span></span></div>`).join('')}</div>`).join('')}</div>${note}</div>`;
   }
 
@@ -928,7 +933,10 @@
     const live = st.orders.filter((o) => ['new', 'preparing', 'at_window', 'ready'].includes(o.status)).sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
     const pk = new Map(live.map((o) => [o.id, K.pickup(o)]));
     const serving = live.filter((o) => o.status === 'ready' || pk.get(o.id).collectable);
-    const num = (o) => esc(String(o.order_no ?? o.kds_seq));
+    const num = (o) => {
+      if (byName(o)) { const w = String(o.customer_name).trim().split(/\s+/); return `<span class="pb-name">${esc(w[0] + (w[1] ? ' ' + w[1][0].toUpperCase() + '.' : ''))}</span>`; }
+      return esc(String(o.order_no ?? o.kds_seq));
+    };
     prep.innerHTML = live.filter((o) => !serving.includes(o)).map((o) => `<div class="num">${num(o)}</div>`).join('');
     ready.innerHTML = serving.map((o) => {
       const k = pk.get(o.id);
