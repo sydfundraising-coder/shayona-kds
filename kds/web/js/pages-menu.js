@@ -262,15 +262,16 @@
   }
   async function closeDay() {
     const p = pauseState();
-    const ids = menuItems().filter((c) => c.available).map((c) => c.variation_id);
+    // every menu item whose Square count isn't 0 yet (available ones, plus sold-out ones left at e.g. -3 or 2)
+    const ids = menuItems().filter((c) => c.available || (c.stock_qty != null && Number(c.stock_qty) !== 0)).map((c) => c.variation_id);
     const extra = p && p.mode === 'break' ? '<br><br>The break list is cleared, so items will <b>not</b> come back by themselves.' : '';
-    const ok = await askNotice('Close for the day?', `${ids.length ? `<b>${ids.length}</b> available item${ids.length === 1 ? '' : 's'} will be switched to sold out in Square (in store &amp; online).` : 'Everything is already sold out.'}
+    const ok = await askNotice('Close for the day?', `${ids.length ? `Every item's stock count in Square will be set to <b>0</b> — sold out in store &amp; online (${ids.length} item${ids.length === 1 ? '' : 's'} to change).` : 'Every item is already at 0 in Square.'}
       Next time you open, switch items on yourself — <b>All on</b> per category, or apply a preset.${extra}`, 'closed', 'Close for the day', true);
     if (!ok) return;
     setWorking('Closing for the day…');
     await savePause({ mode: 'closed', at: new Date().toISOString(), by: api.user?.email || null });
     if (ok.notice) await setNotice('closed', ok);
-    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false }))) : { failed: [] };
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true) : { failed: [] };
   }
   async function markOpen() {
     setWorking('Opening…');
@@ -288,8 +289,8 @@
   }
   K.menuPause = pauseState;
 
-  async function runAvailability(changes) {
-    const res = await api.setAvailabilityMany(changes);
+  async function runAvailability(changes, force) {
+    const res = await api.setAvailabilityMany(changes, force);
     const failedIds = new Set((res.failed || []).map((f) => f.variation_id));
     changes.forEach((c) => { if (!failedIds.has(c.variation_id)) st.cfg.catalog.filter((x) => x.variation_id === c.variation_id).forEach((x) => { x.available = c.available; if ('stock_qty' in x) x.stock_qty = c.available ? Math.max(1, Number(x.stock_qty) || 1000) : 0; }); });
     if (res.failed?.length) {

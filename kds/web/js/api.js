@@ -289,7 +289,7 @@
     }
     setAvailability(itemId, available) { return this._fn('square-availability', { item_id: itemId, available }); }
     setAvailabilityVariations(ids, available) { return this._fn('square-availability', { variation_ids: ids, available }); }
-    setAvailabilityMany(changes) { return this._fn('square-availability', { changes }); }
+    setAvailabilityMany(changes, force) { return this._fn('square-availability', force ? { changes, force: true } : { changes }); }
     async setMenuFlags(variationIds, patch) { return this._chk(await this.sb.rpc('kds_set_menu_flags', { p_variation_ids: variationIds, p_patch: patch })); }
     async clearWaits() { return this._chk(await this.sb.rpc('kds_clear_waits')); }
     async setMenuSetting(key, value) { return this._chk(await this.sb.rpc('kds_set_menu_setting', { p_key: key, p_value: value })); }
