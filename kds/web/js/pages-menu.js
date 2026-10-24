@@ -40,6 +40,7 @@
   function tabItems() {
     const box = K.$('#mtab');
     box.innerHTML = `
+      <div id="mpause"></div>
       <div class="row" style="flex-wrap:wrap">
         <input id="mq" placeholder="Search items…" class="grow" style="min-width:200px">
         <select id="mf"><option value="">All items</option><option value="on">Available</option><option value="off">Sold out</option>
@@ -54,6 +55,7 @@
     try { K.$('#mc').value = localStorage.getItem('kds.menu.cat') || ''; if (K.$('#mc').selectedIndex < 0) K.$('#mc').value = ''; } catch (_) {}
     api.liveWaits().then((w) => { autoWaits = w || {}; draw(); });
     const draw = () => {
+      paintPause();
       const sel = K.$('#mc'), keep = sel.value; sel.innerHTML = catOptions(); sel.value = keep; if (sel.selectedIndex < 0) sel.value = '';   // keep counts fresh
       const q = K.$('#mq').value.trim().toLowerCase(), f = K.$('#mf').value, cat = K.$('#mc').value;
       let rows = menuItems();
@@ -116,6 +118,7 @@
         if (!ids.length) return K.toast('Nothing to change');
         if (!(await K.confirm(`Turn ${on ? 'ON' : 'OFF'} ${ids.length} item(s) in ${esc(bulk.dataset.cat)}?`, 'This updates Square, the kitchen screens and the TV menu.', on ? 'Turn on' : 'Turn off'))) return;
         await runAvailability(ids.map((id) => ({ variation_id: id, available: on })));
+        await afterManual(ids, on);
         draw(); return;
       }
       const b = e.target.closest('[data-act]'); if (!b || b.tagName === 'SELECT') return;
@@ -124,7 +127,9 @@
       try {
         if (act === 'avail') {
           if (b.classList.contains('busy')) return; b.classList.add('busy');
-          await runAvailability([{ variation_id: id, available: !c.available }]);
+          const on = !c.available;
+          await runAvailability([{ variation_id: id, available: on }]);
+          await afterManual([id], on);
         } else if (act === 'jain') { await api.setMenuFlags([id], { jain: !c.jain }); patchLocal([id], { jain: !c.jain }); }
         else if (act === 'new') { await api.setMenuFlags([id], { is_new: !c.is_new }); patchLocal([id], { is_new: !c.is_new }); }
         else if (act === 'wait') {
@@ -151,8 +156,119 @@
       try { await api.setMenuFlags(ids, { board_category: val }); patchLocal(ids, { board_category: val || null }); K.toast('Category saved'); draw(); }
       catch (err) { K.toast(err.message, { error: true }); }
     };
+    K.$('#mpause').onclick = async (e) => {
+      const b = e.target.closest('[data-svc]'); if (!b || pauseBusy) return;
+      const act = b.dataset.svc;
+      try {
+        if (act === 'break') await startBreak();
+        else if (act === 'back') await endBreak();
+        else if (act === 'close') await closeDay();
+        else if (act === 'open') await markOpen();
+      } catch (err) { K.toast(err.message, { error: true }); }
+      finally { pauseBusy = false; draw(); }
+    };
     draw();
   }
+
+  // ================================================================== break / closed for the day
+  // The list of items that were on before a break is kept in the database (kds_settings.service_pause),
+  // so "Back from break" works from any tablet, even after a reload.
+  let pauseBusy = false;
+  const pauseState = () => { const v = st.cfg.settings && st.cfg.settings.service_pause; return v && (v.mode === 'break' || v.mode === 'closed') ? v : null; };
+  const hm = (iso) => { const d = new Date(iso); const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t; };
+  const toRestore = (p) => (p.ids || []).filter((id) => st.cfg.catalog.some((c) => c.variation_id === id && !c.available && onMenu(c)));
+  async function savePause(v) { await api.setMenuSetting('service_pause', v); st.cfg.settings.service_pause = v; }
+  async function setNotice(kind) {
+    const cur = st.cfg.settings.menu_notice || {};
+    let v;
+    if (kind) v = { active: true, ...NOTICES[kind] };
+    else if (cur.active && [NOTICES.break.title, NOTICES.closed.title].includes(cur.title)) v = { ...cur, active: false };   // only take down our own notice
+    if (!v) return;
+    try { await api.setMenuSetting('menu_notice', v); st.cfg.settings.menu_notice = v; } catch (err) { K.toast('TV notice: ' + err.message, { error: true }); }
+  }
+  function paintPause() {
+    const el = K.$('#mpause'); if (!el) return;
+    const p = pauseState(), avail = menuItems().filter((c) => c.available).length;
+    if (!p) {
+      el.innerHTML = `<div class="svc svc-open"><div class="svc-txt"><b>● Open</b><span>${avail} item${avail === 1 ? '' : 's'} available in store &amp; online</span></div>
+        <div class="svc-btns"><button class="btn big" data-svc="break">☕ Start break</button><button class="btn big" data-svc="close">🔒 Close for the day</button></div></div>`;
+    } else if (p.mode === 'break') {
+      const n = toRestore(p).length;
+      el.innerHTML = `<div class="svc svc-break"><div class="svc-txt"><b>☕ On break since ${esc(hm(p.at))}</b><span>Online ordering is paused · ${n} item${n === 1 ? '' : 's'} will come back on</span></div>
+        <div class="svc-btns"><button class="btn primary big" data-svc="back">▶ Back from break</button><button class="btn" data-svc="close">🔒 Close for the day instead</button></div></div>`;
+    } else {
+      el.innerHTML = `<div class="svc svc-closed"><div class="svc-txt"><b>🔒 Closed since ${esc(hm(p.at))}</b><span>Everything is sold out. To open, switch items on below — <b>All on</b> per category, or apply a preset under <i>TV screens, notices &amp; presets</i>.</span></div>
+        <div class="svc-btns"><button class="btn" data-svc="open">We're open — hide this</button></div></div>`;
+    }
+    el.querySelectorAll('button').forEach((x) => (x.disabled = pauseBusy));
+  }
+  function setWorking(label) {
+    pauseBusy = true;
+    const el = K.$('#mpause'); if (el) el.innerHTML = `<div class="svc svc-busy"><div class="svc-txt"><b>${esc(label)}</b><span>Updating Square — keep this screen open…</span></div></div>`;
+  }
+  // confirm with a "show on the TV screens" tick box
+  const askNotice = (title, text, kind, okLabel, danger) => new Promise((res) => {
+    K.modal(title, `<div class="muted">${text}</div>
+      <label class="row" style="margin:14px 0 4px;gap:10px;cursor:pointer"><input type="checkbox" id="svcn" checked style="width:22px;height:22px"> Show “${esc(NOTICES[kind].title)}” on the TV screens</label>
+      <div class="actions"><button class="btn" data-x="0">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" data-x="1">${esc(okLabel)}</button></div>`, (w, close) => {
+      w.addEventListener('click', (e) => { if (e.target === w) res(null); });
+      w.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => { const ok = b.dataset.x === '1'; const notice = K.$('#svcn', w).checked; close(); res(ok ? { notice } : null); }));
+    });
+  });
+
+  async function startBreak() {
+    const ids = menuItems().filter((c) => c.available).map((c) => c.variation_id);
+    if (!ids.length) return K.toast('Nothing is available right now');
+    const ok = await askNotice('Start break?', `<b>${ids.length}</b> available item${ids.length === 1 ? '' : 's'} will be switched to sold out in Square, so online customers can't order.<br><br>
+      When you tap <b>Back from break</b>, exactly these items come back on. Items already sold out stay sold out.`, 'break', 'Start break');
+    if (!ok) return;
+    setWorking('Starting break…');
+    await savePause({ mode: 'break', at: new Date().toISOString(), ids, by: api.user?.email || null });   // remember the list first
+    if (ok.notice) await setNotice('break');
+    const res = await runAvailability(ids.map((id) => ({ variation_id: id, available: false })));
+    if (!res.failed?.length) K.toast(`On break — ${ids.length} item(s) sold out in Square`);
+  }
+  async function endBreak() {
+    const p = pauseState(); if (!p || p.mode !== 'break') return;
+    const ids = toRestore(p);
+    if (!(await K.confirm('Back from break?', `<b>${ids.length}</b> item${ids.length === 1 ? '' : 's'} will be switched back on — the same ones that were on before the break.`, 'Turn them on'))) return;
+    setWorking('Coming back from break…');
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: true }))) : { failed: [] };
+    const failed = (res.failed || []).map((f) => f.variation_id).filter((id) => ids.includes(id));
+    if (failed.length) { await savePause({ ...p, ids: failed }); K.toast(`${failed.length} item(s) still to switch on — tap Back from break again`, { error: true }); return; }
+    await savePause({ mode: null, last: { mode: 'break', at: p.at, ended: new Date().toISOString() } });
+    await setNotice(null);
+    K.toast(`Welcome back — ${ids.length} item(s) on in Square`);
+  }
+  async function closeDay() {
+    const p = pauseState();
+    const ids = menuItems().filter((c) => c.available).map((c) => c.variation_id);
+    const extra = p && p.mode === 'break' ? '<br><br>The break list is cleared, so items will <b>not</b> come back by themselves.' : '';
+    const ok = await askNotice('Close for the day?', `${ids.length ? `<b>${ids.length}</b> available item${ids.length === 1 ? '' : 's'} will be switched to sold out in Square (in store &amp; online).` : 'Everything is already sold out.'}
+      Next time you open, switch items on yourself — <b>All on</b> per category, or apply a preset.${extra}`, 'closed', 'Close for the day', true);
+    if (!ok) return;
+    setWorking('Closing for the day…');
+    await savePause({ mode: 'closed', at: new Date().toISOString(), by: api.user?.email || null });
+    if (ok.notice) await setNotice('closed');
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false }))) : { failed: [] };
+    if (!res.failed?.length) K.toast('Closed — everything is sold out in Square');
+  }
+  async function markOpen() {
+    setWorking('Opening…');
+    await savePause({ mode: null });
+    await setNotice(null);
+    K.toast('Marked as open');
+  }
+  // keep the break list / closed flag in step with switches flipped by hand
+  async function afterManual(ids, on) {
+    const p = pauseState(); if (!p) return;
+    try {
+      if (p.mode === 'closed' && on) { await savePause({ mode: null }); await setNotice(null); K.toast('Marked as open'); }
+      else if (p.mode === 'break' && !on) { const keep = (p.ids || []).filter((x) => !ids.includes(x)); if (keep.length !== (p.ids || []).length) await savePause({ ...p, ids: keep }); }
+    } catch (err) { K.toast(err.message, { error: true }); }
+  }
+  K.menuPause = pauseState;
 
   async function runAvailability(changes) {
     const res = await api.setAvailabilityMany(changes);
@@ -247,7 +363,7 @@
         const flips = changes.filter((c) => st.cfg.catalog.find((x) => x.variation_id === c.variation_id).available !== c.available).length;
         if (!(await K.confirm(`Apply "${esc(p.name)}"?`, `${p.variation_ids.length} items on, everything else off. <b>${flips}</b> item(s) will change in Square.`, 'Apply preset'))) return;
         pb.disabled = true; pb.textContent = 'Applying…';
-        try { await runAvailability(changes); } catch (err) { K.toast(err.message, { error: true }); }
+        try { await runAvailability(changes); await afterManual(p.variation_ids, true); } catch (err) { K.toast(err.message, { error: true }); }
         tabScreens();
       }
     };

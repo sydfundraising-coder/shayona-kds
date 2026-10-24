@@ -367,7 +367,7 @@
     };
     relayTimer = setTimeout(tick, 300);
   }
-  K.VERSION = '24 Oct 2026 · online by name v44';
+  K.VERSION = '24 Oct 2026 · break & close v45';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -599,6 +599,10 @@
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
         ${K.installCard()}
+        ${(() => { const sp = st.cfg.settings && st.cfg.settings.service_pause; if (!sp || !['break', 'closed'].includes(sp.mode)) return '';
+          const t = new Date(sp.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          return sp.mode === 'break' ? `<a class="svc svc-break svc-home" href="#/menu"><div class="svc-txt"><b>☕ On break since ${K.esc(t)}</b><span>Online ordering is paused. Tap here, then <b>Back from break</b> to switch the same items back on.</span></div></a>`
+            : `<a class="svc svc-closed svc-home" href="#/menu"><div class="svc-txt"><b>🔒 Closed for the day</b><span>Everything is sold out. Tap here to switch items on when you open.</span></div></a>`; })()}
         ${isAdmin && unrouted ? `<div class="banner" style="margin-top:12px;border-radius:10px"><b>${unrouted} menu item(s) have no station.</b> <a href="#/admin?tab=health">Run the health check →</a> They skip the kitchen and the window and are ready straight away at the front counter. <a href="#/admin?tab=routing">Check routing →</a></div>` : ''}
         <h2>Kitchen stations</h2>
         <div class="tiles">
