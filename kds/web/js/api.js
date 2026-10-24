@@ -144,6 +144,8 @@
           const url = String(window.KDS_CONFIG?.supabaseUrl || '').replace(/\/+$/, '') + '/functions/v1/push-notify';
           this.sb.rpc('kds_push_setup', { p_url: url, p_key: window.KDS_CONFIG?.supabaseAnonKey || null })
             .then((r) => { if (r && r.error) return this.sb.rpc('kds_push_setup', { p_url: url }); }).then(() => {}, () => {});   // older SQL (018 only): one argument
+          // Square Online status sync (SQL 023): quiet if not set up yet
+          this.sb.rpc('kds_fulfil_setup', { p_url: url.replace('/push-notify', '/square-fulfil'), p_key: window.KDS_CONFIG?.supabaseAnonKey || null }).then(() => {}, () => {});
         }
       } catch (_) {                                  // offline: use the role we saw last time
         try { this.role = localStorage.getItem('kds.role') || 'staff'; } catch (__) { this.role = 'staff'; }
