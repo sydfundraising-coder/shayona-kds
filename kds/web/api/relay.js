@@ -22,6 +22,17 @@ async function redis(...cmd) {
 }
 const dayKey = (day) => 'kds:ev:' + String(day || '').replace(/[^0-9-]/g, '').slice(0, 10);
 
+// paid = completed, free, or fully covered by approved payments (same rule as the Supabase functions)
+function isPaid(o) {
+  if (o.state === 'COMPLETED') return true;
+  const total = Number((o.total_money && o.total_money.amount) || 0);
+  if (total <= 0) return true;
+  const ok = (o.tenders || []).filter((t) => !t.card_details || ['AUTHORIZED', 'CAPTURED'].includes(t.card_details.status));
+  if (!ok.length) return false;
+  if (o.net_amount_due_money && o.net_amount_due_money.amount != null) return Number(o.net_amount_due_money.amount) <= 0;
+  return ok.reduce((a, t) => a + Number((t.amount_money && t.amount_money.amount) || 0), 0) >= total;
+}
+
 async function squareOrders(location, since) {
   const body = {
     location_ids: [location], limit: 200,
@@ -38,7 +49,7 @@ async function squareOrders(location, since) {
   if (!r.ok) throw new Error('square: ' + ((j.errors || []).map((e) => e.detail || e.code).join('; ') || r.status));
   // only what the kitchen needs (no payment or customer contact details)
   return (j.orders || []).map((o) => ({
-    id: o.id, state: o.state, location_id: o.location_id, ticket_name: o.ticket_name || null, created_at: o.created_at,
+    id: o.id, state: o.state, paid: isPaid(o), location_id: o.location_id, ticket_name: o.ticket_name || null, created_at: o.created_at,
     source: (o.source && o.source.name) || '',
     fulfillment: (() => { const f = (o.fulfillments || [])[0] || {}; const d = f.pickup_details || f.delivery_details || {};
       return { type: f.type || '', state: f.state || '', name: (d.recipient && d.recipient.display_name) || null, pickup_at: (f.pickup_details && f.pickup_details.pickup_at) || null, note: (f.pickup_details && f.pickup_details.note) || null }; })(),

@@ -356,6 +356,7 @@
           for (const so of orders || []) {
             if (st.orders.some((x) => x.square_order_id === so.id)) continue;
             const b = backupOrder(so); if (!b.items.length) continue;
+            if (so.paid === false && !b.order.is_online && (st.cfg.settings.require_payment || 'paid') !== 'any') continue;   // card declined / not paid yet
             st.orders.push(b.order); st.items.push(...b.items); refreshOrder(b.order); changed = true;
           }
           if (changed) waitingRemote = waitingRemote.filter((e) => !applyRemote(e));   // pushes for orders that just arrived
@@ -367,7 +368,7 @@
     };
     relayTimer = setTimeout(tick, 300);
   }
-  K.VERSION = '24 Oct 2026 · close zero v48';
+  K.VERSION = '7 Nov 2026 · paid only v50';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {

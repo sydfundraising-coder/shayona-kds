@@ -306,6 +306,11 @@
       <div class="row"><div class="field grow"><label>Walk-in item with no modifier</label><select data-k="default_pack" data-type="str"><option value="PLATE" ${s.default_pack === 'PLATE' ? 'selected' : ''}>DINE-IN</option><option value="BOX" ${s.default_pack === 'BOX' ? 'selected' : ''}>TAKE AWAY</option></select></div>
       <div class="field grow"><label>Online order item with no modifier</label><select data-k="online_pack" data-type="str"><option value="BOX" ${s.online_pack === 'BOX' ? 'selected' : ''}>TAKE AWAY</option><option value="PLATE" ${s.online_pack === 'PLATE' ? 'selected' : ''}>DINE-IN</option></select></div></div>
       <div class="field"><label>Don't show the DINE-IN badge for these categories (e.g. drinks) — TAKE AWAY still shows</label><input data-k="pack_hidden_categories" data-type="list" value="${list('pack_hidden_categories')}"></div>
+      <h2>Payment</h2>
+      <div class="field"><label>Send counter orders to the kitchen</label><select data-k="require_payment" data-type="str">
+        <option value="paid" ${(s.require_payment || 'paid') !== 'any' ? 'selected' : ''}>Only once the payment is approved (recommended)</option>
+        <option value="any" ${s.require_payment === 'any' ? 'selected' : ''}>As soon as the order is made, paid or not</option></select>
+        <div class="muted" style="font-size:.85em;margin-top:4px">A declined card means nothing reaches the screens until the customer pays another way. Online orders always come through. Choose "paid or not" only if you send open tickets to the kitchen before payment.</div></div>
       <h2>Online orders</h2>
       <div class="field"><label>Order sources treated as ONLINE (comma separated, matched in the Square source name)</label><input data-k="online_sources" data-type="list" value="${list('online_sources')}"></div>
       <h2>Timers</h2>
