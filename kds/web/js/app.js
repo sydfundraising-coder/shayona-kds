@@ -213,7 +213,6 @@
   function refreshOrder(o) {
     if (!o || o.status === 'cancelled') return;
     const its = (st.items || []).filter((i) => i.order_id === o.id && !i.removed); if (!its.length) return;
-    its.forEach((i) => { if (i.hand_over) i.qty_front = i.qty_window; });   // handed over at the event station (same as the database)
     const all = (f) => its.every(f);
     const any = its.some((i) => (i.qty_prep > 0 && !i.no_prep) || (i.qty_window > 0 && !i.no_prep) || i.qty_front > 0);
     const now = new Date().toISOString();
@@ -382,7 +381,7 @@
     };
     relayTimer = setTimeout(tick, 300);
   }
-  K.VERSION = '8 Nov 2026 · event station v52';
+  K.VERSION = '8 Nov 2026 · pickup shelf v53';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {

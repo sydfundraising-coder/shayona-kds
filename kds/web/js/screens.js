@@ -498,6 +498,7 @@
       if (ft) { p.ftab = ft.dataset.ftab; K.savePrefs(key, p); window.scrollTo(0, 0); drawBoard(ctx); return; }
       onAction(e, ctx);
     };
+    K.$('#banner').onclick = (e) => { if (e.target.closest('[data-act="shelf"]')) onAction(e, ctx); };   // event station pickup shelf
     startOverlay(ctx);
     drawBoard(ctx);
     clearInterval(K._undoTick); K._undoTick = setInterval(() => { if (K.curCtx === ctx) paintUndo(ctx); }, 5000);
@@ -592,6 +593,7 @@
         ? `<div class="banner offline-banner">📴 <b>BACKUP MODE</b> — the main database is down. Screens are linked through the backup and new orders come straight from Square. ${q ? `${q} push${q > 1 ? 'es' : ''} will be saved to the database when it's back.` : ''}</div>`
         : `<div class="banner offline-banner">📴 <b>OFFLINE</b> — finish the orders on screen (saved ${esc(at)}). New orders won't show until the connection is back. ${q ? `<b>${q}</b> push${q > 1 ? 'es' : ''} saved on this tablet — sent automatically when back online.` : 'Pushes are saved on this tablet and sent automatically.'}</div>`;
     } else if (!st.connected) banner += '<div class="banner">⚠ Connection lost — retrying. New orders may be delayed.</div>';
+    if (kind === 'station' && station && station.hands_over) banner += shelfHtml(station);
     K.$('#banner').innerHTML = banner;
 
     let html;
@@ -683,6 +685,27 @@
 
   // ------------------------------------------------------------------ actions
   const findItem = (id) => st.items.find((i) => i.id === id);
+  // event station that hands over to customers: what's cooked and waiting on the shelf, per order + totals per item
+  function shelfItems(o, stationId) {
+    return (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && i.hand_over && i.station_id === stationId && i.qty_window > i.qty_front);
+  }
+  function shelfHtml(station) {
+    const rows = [], tot = new Map();
+    for (const o of st.orders) {
+      if (o.status === 'cancelled' || o.status === 'completed') continue;
+      const its = shelfItems(o, station.id); if (!its.length) continue;
+      const since = its.map((i) => i.prepared_at || i.window_at).filter(Boolean).sort()[0] || o.updated_at;
+      its.forEach((i) => { const k = i.item_name + (i.variation_name ? ' · ' + i.variation_name : ''); tot.set(k, (tot.get(k) || 0) + i.qty_window - i.qty_front); });
+      rows.push({ o, its, since });
+    }
+    const n = [...tot.values()].reduce((a, b) => a + b, 0);
+    rows.sort((a, b) => new Date(a.since) - new Date(b.since));
+    return `<div class="shelf"><div class="shelf-h"><b>🍽 Cooked — waiting for pickup: ${n}</b>${n ? ' · ' + [...tot].sort((a, b) => b[1] - a[1]).map(([k, q]) => `<span class="shelf-t">${q}× ${esc(k)}</span>`).join(' ') : ' <span class="muted">nothing waiting</span>'}</div>
+      ${rows.length ? `<div class="shelf-row">${rows.map((r) => `<button class="shelf-o" data-act="shelf" data-order="${r.o.id}" title="Tap when the customer has collected it">
+        <span class="shelf-no">${onoHtml(r.o)}${timerHtml(r.since, { warn: 5 * 60e3, late: 10 * 60e3 })}</span>
+        <span class="shelf-its">${r.its.map((i) => `${i.qty_window - i.qty_front}× ${esc(i.item_name)}${i.variation_name ? ' · ' + esc(i.variation_name) : ''}`).join('<br>')}</span>
+        <span class="shelf-go">Handed over ✓</span></button>`).join('')}</div>` : ''}</div>`;
+  }
   const findOrder = (id) => st.orders.find((o) => o.id === id);
   const stationFilter = (ctx) => (ctx.kind === 'station' ? ctx.station.id : null);
 
@@ -748,6 +771,10 @@
         const it = findItem(parts[0][0]);
         if (n && it) rememberUndo(ctx, { at: t0, stage: 'window', items: parts.map((x) => x[0]), label: `${n}× ${it.item_name}` });
 
+      } else if (act === 'shelf') {
+        const o = findOrder(el.dataset.order); let n = 0; const t0 = Date.now();
+        for (const it of shelfItems(o, ctx.station.id)) n += await api.bump(it.id, 'front', it.qty_window - it.qty_front, ctx.key, false);
+        if (n) rememberUndo(ctx, { at: t0, stage: 'front', orderId: o.id, label: `${ono(o)} — handed over` });
       } else if (act === 'handover') {
         const o = findOrder(el.dataset.order);
         const allReady = allWindowDone(o); let n = 0; const t0 = Date.now();

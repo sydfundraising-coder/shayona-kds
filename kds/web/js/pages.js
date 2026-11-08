@@ -175,7 +175,7 @@
         <div class="field grow"><label>Red after (min)</label><input id="sl" type="number" min="1" value="${x.late_minutes || ''}" placeholder="${K.setting('timer_late_minutes', 10)}"></div></div>
         <label class="row" style="margin-bottom:8px"><input id="sa" type="checkbox" ${x.active ? 'checked' : ''}> Active</label>
         <h3 style="margin:14px 0 6px">Events / pop-up stalls</h3>
-        <label class="row" style="margin-bottom:4px;align-items:flex-start"><input id="sh" type="checkbox" ${x.hands_over ? 'checked' : ''} style="margin-top:4px"> <span><b>Hands over to the customer here</b><br><span class="muted" style="font-size:.88em">Pushing an item on this station finishes it — it skips the window and the front counter and clears from every screen.</span></span></label>
+        <label class="row" style="margin-bottom:4px;align-items:flex-start"><input id="sh" type="checkbox" ${x.hands_over ? 'checked' : ''} style="margin-top:4px"> <span><b>Hands over to the customer here</b><br><span class="muted" style="font-size:.88em">Items skip the window and the front counter. Pushing an item puts it on this station's <b>Cooked — waiting for pickup</b> shelf; tap the order there when the customer collects it.</span></span></label>
         <div class="field" style="margin-top:10px"><label>Send this station's NEW orders to</label><select id="sr">
           <option value="">This station (normal)</option>
           ${s.filter((y) => y.id !== x.id && y.id).map((y) => `<option value="${y.id}" ${x.redirect_to === y.id ? 'selected' : ''}>${esc(y.name)}${y.hands_over ? ' (hands over)' : ''}</option>`).join('')}</select>
