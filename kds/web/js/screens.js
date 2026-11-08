@@ -27,7 +27,8 @@
     const cat = st.cfg.categories.find((k) => (c && k.square_id === c.category_id) || k.name === it.category_name);
     return !!cat?.hold;
   };
-  const liveItems = (o) => (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed);
+  // items handed over at an event station never come to the front counter, so they don't count there
+  const liveItems = (o) => (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && !i.hand_over);
   const allWindowDone = (o) => liveItems(o).every((i) => i.qty_window >= i.qty);
   K.pickup = function (o) {
     const items = liveItems(o), allReady = items.length > 0 && items.every((i) => i.qty_window >= i.qty);
@@ -226,7 +227,9 @@
     for (const o of st.orders) {
       if (o.status === 'completed') continue;
       if (o.status === 'cancelled' && !showCancelled(o)) continue;
-      out.push({ o, items: (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed) });
+      const items = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && !i.hand_over);   // event-station items are handed over there
+      if (!items.length || (o.status !== 'cancelled' && items.every((i) => i.qty_front >= i.qty))) continue;   // nothing for the front counter
+      out.push({ o, items });
     }
     return sortOrders(out, p);
   }

@@ -335,6 +335,7 @@
     async closeOpenOrders(mins = 0) { return this._chk(await this.sb.rpc('kds_close_open_orders', { p_older_than_minutes: mins })); }
     async saveStation(s) {
       const row = { name: s.name, colour: s.colour, sort: +s.sort || 0, warn_minutes: s.warn_minutes || null, late_minutes: s.late_minutes || null, active: s.active !== false };
+      if ('hands_over' in s) { row.hands_over = !!s.hands_over; row.redirect_to = s.redirect_to || null; }   // SQL 027
       if (s.id) return this._chk(await this.sb.from('stations').update(row).eq('id', s.id));
       return this._chk(await this.sb.from('stations').insert(row));
     }

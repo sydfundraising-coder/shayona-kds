@@ -161,7 +161,7 @@
       <div class="tablewrap"><table class="t"><thead><tr><th>Colour</th><th>Name</th><th class="n">Order</th><th class="n">Amber after (min)</th><th class="n">Red after (min)</th><th>Active</th><th></th></tr></thead>
       <tbody>${s.map((x) => `<tr><td><span class="swatch" style="display:inline-block;width:22px;height:22px;border-radius:6px;background:${esc(x.colour)}"></span></td>
         <td><b>${esc(x.name)}</b></td><td class="n">${x.sort}</td><td class="n">${x.warn_minutes || `<span class="faint">${K.setting('timer_warn_minutes', 5)}</span>`}</td>
-        <td class="n">${x.late_minutes || `<span class="faint">${K.setting('timer_late_minutes', 10)}</span>`}</td><td>${x.active ? 'Yes' : 'No'}</td>
+        <td class="n">${x.late_minutes || `<span class="faint">${K.setting('timer_late_minutes', 10)}</span>`}</td><td>${x.active ? 'Yes' : 'No'}${x.hands_over ? '<br><span class="pill badge-walk" style="font-size:.75em">Hands over here</span>' : ''}${x.redirect_to ? `<br><span class="pill badge-cancel" style="font-size:.75em">New orders → ${esc((s.find((y) => y.id === x.redirect_to) || {}).name || '?')}</span>` : ''}</td>
         <td><button class="btn sm" data-edit="${x.id}">Edit</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No stations yet</td></tr>'}</tbody></table></div>
       <div style="margin-top:12px"><button class="btn primary" data-edit="">+ Add station</button></div>`;
     K.$('#tab').onclick = (e) => {
@@ -174,13 +174,20 @@
         <div class="row"><div class="field grow"><label>Amber after (min)</label><input id="sw" type="number" min="1" value="${x.warn_minutes || ''}" placeholder="${K.setting('timer_warn_minutes', 5)}"></div>
         <div class="field grow"><label>Red after (min)</label><input id="sl" type="number" min="1" value="${x.late_minutes || ''}" placeholder="${K.setting('timer_late_minutes', 10)}"></div></div>
         <label class="row" style="margin-bottom:8px"><input id="sa" type="checkbox" ${x.active ? 'checked' : ''}> Active</label>
+        <h3 style="margin:14px 0 6px">Events / pop-up stalls</h3>
+        <label class="row" style="margin-bottom:4px;align-items:flex-start"><input id="sh" type="checkbox" ${x.hands_over ? 'checked' : ''} style="margin-top:4px"> <span><b>Hands over to the customer here</b><br><span class="muted" style="font-size:.88em">Pushing an item on this station finishes it — it skips the window and the front counter and clears from every screen.</span></span></label>
+        <div class="field" style="margin-top:10px"><label>Send this station's NEW orders to</label><select id="sr">
+          <option value="">This station (normal)</option>
+          ${s.filter((y) => y.id !== x.id && y.id).map((y) => `<option value="${y.id}" ${x.redirect_to === y.id ? 'selected' : ''}>${esc(y.name)}${y.hands_over ? ' (hands over)' : ''}</option>`).join('')}</select>
+          <div class="muted" style="font-size:.85em;margin-top:4px">For a one-day event: items normally made here go to the other station instead. Orders already on screen stay here. Set back to "This station" when the event ends.</div></div>
         <div class="actions">${x.id ? '<button class="btn danger" id="sdel">Delete</button><span class="grow"></span>' : ''}<button class="btn" id="sx">Cancel</button><button class="btn primary" id="ss">Save</button></div>`, (w, close) => {
         K.$('#sx', w).onclick = close;
         K.$('#ss', w).onclick = async () => {
           const name = K.$('#sn', w).value.trim(); if (!name) return K.toast('Enter a name', { error: true });
           try {
             await api.saveStation({ id: x.id, name, colour: K.$('#sc', w).value, sort: +K.$('#so', w).value,
-              warn_minutes: +K.$('#sw', w).value || null, late_minutes: +K.$('#sl', w).value || null, active: K.$('#sa', w).checked });
+              warn_minutes: +K.$('#sw', w).value || null, late_minutes: +K.$('#sl', w).value || null, active: K.$('#sa', w).checked,
+              hands_over: K.$('#sh', w).checked, redirect_to: K.$('#sr', w).value || null });
             close(); K.toast('Station saved'); refreshAdmin();
           } catch (err) { K.toast(err.message, { error: true }); }
         };
