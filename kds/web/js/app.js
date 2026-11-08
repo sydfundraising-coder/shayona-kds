@@ -76,6 +76,19 @@
     while (box.children.length > 3) box.firstChild.remove();
     setTimeout(() => t.remove(), opts.ms || (opts.undo ? 6000 : 3500));
   };
+  // a break / "closed for the day" still in force? Closed ends by itself at 5 am next morning, a break after 8 hours
+  // (same rule as the Square webhook, so a forgotten "closed" can never hold items sold out on a trading day)
+  K.pauseActive = function (p, now = new Date()) {
+    if (!p || !p.at || (p.mode !== 'closed' && p.mode !== 'break')) return false;
+    const at = new Date(p.at);
+    if (p.mode === 'break') return now - at < 8 * 3600e3;
+    const tz = (st.cfg && st.cfg.settings && st.cfg.settings.timezone) || 'Australia/Sydney';
+    const parts = (d) => { const o = {}; new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(d).forEach((x) => (o[x.type] = x.value));
+      return { day: `${o.year}-${o.month}-${o.day}`, h: +o.hour }; };
+    const a = parts(at), n = parts(now);
+    const end = a.h < 5 ? a.day : new Date(Date.parse(a.day + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10);
+    return n.day < end || (n.day === end && n.h < 5);
+  };
   K.confirm = function (title, text, okLabel = 'Yes', danger = false) {
     return new Promise((res) => {
       const w = document.createElement('div'); w.className = 'modal-wrap';
@@ -368,7 +381,7 @@
     };
     relayTimer = setTimeout(tick, 300);
   }
-  K.VERSION = '7 Nov 2026 · paid only v50';
+  K.VERSION = '8 Nov 2026 · menu items stay v51';
   K.loadConfig = async () => { st.cfg = await api.loadConfig(); K.saveCfgCache && K.saveCfgCache(); };
   let reloadTimer = null, reloading = false, again = false;
   K.reload = function (delay = 120) {
@@ -600,7 +613,7 @@
           <div class="row">${K.themeBtn()}${api.mode === 'live' ? '<button class="btn" id="signout">Sign out</button>' : ''}</div>
         </div>
         ${K.installCard()}
-        ${(() => { const sp = st.cfg.settings && st.cfg.settings.service_pause; if (!sp || !['break', 'closed'].includes(sp.mode)) return '';
+        ${(() => { const sp = st.cfg.settings && st.cfg.settings.service_pause; if (!K.pauseActive(sp)) return '';
           const t = new Date(sp.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
           return sp.mode === 'break' ? `<a class="svc svc-break svc-home" href="#/menu"><div class="svc-txt"><b>☕ On break since ${K.esc(t)}</b><span>Online ordering is paused. Tap here, then <b>Back from break</b> to switch the same items back on.</span></div></a>`
             : `<a class="svc svc-closed svc-home" href="#/menu"><div class="svc-txt"><b>🔒 Closed for the day</b><span>Everything is sold out. Tap here to switch items on when you open.</span></div></a>`; })()}

@@ -47,6 +47,7 @@
           <option value="new">NEW</option><option value="wait">With wait time</option><option value="nophoto">Available, no photo</option></select>
         <select id="mc" title="Show one category">${catOptions()}</select>
         <button class="btn" id="msync">↻ Refresh from Square</button>
+        <button class="btn" id="mhist" title="Every time an item went on or off, and what did it">🕘 History</button>
       </div>
       <p class="muted" style="font-size:.86em;margin:8px 0 0">Switch = available / sold out in Square (POS &amp; online), the kitchen screens and the TV menu.
       <b>J</b> = Jain mark · <b>NEW</b> badge · <b>⏱</b> tap to cycle peak wait (10–60 min) · <b>＋</b> add-on line under the item on the board.
@@ -110,6 +111,18 @@
       try { const r = await api.syncCatalog(); await reloadCfg(); K.toast(`Menu refreshed from Square — ${r.variations} items` + (r.available != null ? `, ${r.available} available, ${r.sold_out} sold out` : '')); draw(); }
       catch (err) { K.toast(err.message, { error: true }); } finally { e.target.disabled = false; }
     };
+    K.$('#mhist').onclick = async () => {
+      let rows = [];
+      try { rows = await api.availLog(); } catch (err) { return K.toast(err.message, { error: true }); }
+      const t = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      const why = (src) => /^KDS/.test(src) ? 'Switched in the KDS' + esc(src.replace(/^KDS/, '')) : /^Kept sold out/.test(src) ? esc(src) + ' (another app tried to add stock)'
+        : /^Square stock count/.test(src) ? esc(src.replace('Square stock count', 'Stock count changed in Square')) + ' — a sale, Square Dashboard/POS, or another app' : esc(src || 'unknown');
+      K.modal('Availability history', `<p class="muted" style="margin-top:0">Last 60 days, newest first. If an item went <b>OFF</b> by itself, the reason shows here.</p>
+        <div class="tablewrap" style="max-height:60vh"><table class="t"><tbody>${rows.map((r) => `<tr><td style="white-space:nowrap">${esc(t(r.at))}</td><td><b>${esc(r.item_name || r.variation_id)}</b></td>
+          <td>${r.available ? '<span class="pill badge-walk">ON</span>' : '<span class="pill badge-cancel">OFF</span>'}</td><td class="muted" style="font-size:.88em">${why(r.source)}</td></tr>`).join('')
+          || '<tr><td class="muted">Nothing recorded yet — changes are recorded from now on.</td></tr>'}</tbody></table></div>
+        <div class="actions"><button class="btn primary" data-x>Close</button></div>`, (w, close) => { K.$('[data-x]', w).onclick = close; });
+    };
     K.$('#mlist').onclick = async (e) => {
       const bulk = e.target.closest('[data-bulk]');
       if (bulk) {
@@ -158,7 +171,7 @@
     };
     K.$('#mpause').onclick = async (e) => {
       const b = e.target.closest('[data-svc]'); if (!b) return;
-      await runPause({ break: startBreak, back: endBreak, close: closeDay, open: markOpen }[b.dataset.svc]);
+      await runPause({ break: startBreak, back: endBreak, close: closeDay, open: markOpen, rezero: reZero }[b.dataset.svc]);
       draw();
     };
     draw();
@@ -172,7 +185,7 @@
     if (pauseBusy || !fn) return;
     try { await fn(); } catch (err) { K.toast(err.message, { error: true }); } finally { pauseBusy = false; }
   }
-  const pauseState = () => { const v = st.cfg.settings && st.cfg.settings.service_pause; return v && (v.mode === 'break' || v.mode === 'closed') ? v : null; };
+  const pauseState = () => { const v = st.cfg.settings && st.cfg.settings.service_pause; return K.pauseActive(v) ? v : null; };
   const hm = (iso) => { const d = new Date(iso); const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t; };
   const toRestore = (p) => (p.ids || []).filter((id) => st.cfg.catalog.some((c) => c.variation_id === id && !c.available && onMenu(c)));
@@ -202,8 +215,14 @@
       el.innerHTML = `<div class="svc svc-break"><div class="svc-txt"><b>☕ On break since ${esc(hm(p.at))}</b><span>Online ordering is paused · ${n} item${n === 1 ? '' : 's'} will come back on</span></div>
         <div class="svc-btns"><button class="btn primary big" data-svc="back">▶ Back from break</button><button class="btn" data-svc="close">🔒 Close for the day instead</button></div></div>`;
     } else {
-      el.innerHTML = `<div class="svc svc-closed"><div class="svc-txt"><b>🔒 Closed since ${esc(hm(p.at))}</b><span>Everything is sold out. To open, switch items on below — <b>All on</b> per category, or apply a preset under <i>TV screens, notices &amp; presets</i>.</span></div>
+      const crept = menuItems().filter((c) => c.available || (c.stock_qty != null && Number(c.stock_qty) > 0));
+      el.innerHTML = `<div class="svc svc-closed"><div class="svc-txt"><b>🔒 Closed since ${esc(hm(p.at))}</b>
+        ${crept.length ? `<span class="svc-warn">⚠ ${crept.length} item${crept.length === 1 ? ' has' : 's have'} stock in Square again (${esc(crept.slice(0, 4).map((c) => c.item_name).join(', '))}${crept.length > 4 ? '…' : ''}) <button class="btn sm svc-fix" data-svc="rezero">Set back to 0</button></span>` : ''}<span>Everything is sold out. To open, switch items on below — <b>All on</b> per category, or apply a preset under <i>TV screens, notices &amp; presets</i>.</span></div>
         <div class="svc-btns"><button class="btn" data-svc="open">We're open — hide this</button></div></div>`;
+    }
+    const g = st.cfg.settings && st.cfg.settings.pause_guard;
+    if (p && g && g.since === p.at && g.count) {
+      el.querySelector('.svc-txt').insertAdjacentHTML('beforeend', `<span class="svc-guard">🛡 Stopped ${g.count} stock top-up${g.count === 1 ? '' : 's'} from other apps while ${p.mode === 'break' ? 'on break' : 'closed'} (${esc((g.items || []).slice(0, 4).join(', '))}${(g.items || []).length > 4 ? '…' : ''}) — last at ${esc(hm(g.last))}</span>`);
     }
     el.querySelectorAll('button').forEach((x) => (x.disabled = pauseBusy));
   }
@@ -272,6 +291,13 @@
     await savePause({ mode: 'closed', at: new Date().toISOString(), by: api.user?.email || null });
     if (ok.notice) await setNotice('closed', ok);
     const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true) : { failed: [] };
+  }
+  async function reZero() {
+    const ids = menuItems().filter((c) => c.available || (c.stock_qty != null && Number(c.stock_qty) > 0)).map((c) => c.variation_id);
+    if (!ids.length) return;
+    setWorking('Setting stock back to 0…');
+    const res = await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true);
+    if (!res.failed?.length) K.toast(`${ids.length} item(s) back to 0 in Square`);
   }
   async function markOpen() {
     setWorking('Opening…');

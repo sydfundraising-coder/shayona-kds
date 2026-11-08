@@ -295,6 +295,11 @@
     async setMenuSetting(key, value) { return this._chk(await this.sb.rpc('kds_set_menu_setting', { p_key: key, p_value: value })); }
     async savePreset(name, ids) { return this._chk(await this.sb.from('menu_presets').upsert({ name, variation_ids: ids, updated_at: iso(now()) })); }
     async deletePreset(name) { return this._chk(await this.sb.from('menu_presets').delete().eq('name', name)); }
+    async availLog() {
+      const { data, error } = await this.sb.from('avail_log').select('at,variation_id,item_name,available,stock_qty,source').order('at', { ascending: false }).limit(300);
+      if (error) throw new Error(/avail_log/.test(error.message) ? 'Run SQL 026 in Supabase first' : error.message);
+      return data || [];
+    }
     async liveWaits() { try { return this._chk(await this.sb.rpc('kds_menu_feed'))?.autoWaits || {}; } catch (_) { return {}; } }
     async uploadMedia(file, kind, itemName) {
       const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
@@ -626,9 +631,9 @@
       this._emit('catalog_items'); return { ok: true, demo: true };
     }
     async setAvailabilityVariations(ids, available) { return this.setAvailabilityMany(ids.map((id) => ({ variation_id: id, available }))); }
-    async setAvailabilityMany(changes) {
+    async setAvailabilityMany(changes, force) {
       await new Promise((r) => setTimeout(r, 400)); let n = 0;
-      changes.forEach((c) => { const row = this.catalog.find((x) => x.variation_id === c.variation_id); if (row && row.available !== c.available) { row.available = c.available; row.stock_qty = c.available ? 1000 : 0; n++; } });
+      changes.forEach((c) => { const row = this.catalog.find((x) => x.variation_id === c.variation_id); if (row && (row.available !== c.available || (force && !c.available && Number(row.stock_qty)))) { row.available = c.available; row.stock_qty = c.available ? 1000 : 0; n++; } });
       this._emit('catalog_items'); return { ok: true, applied: n, failed: [], demo: true };
     }
     async setMenuFlags(ids, patch) {
@@ -642,6 +647,7 @@
     async setMenuSetting(key, value) { this.settings[key] = value; }
     async savePreset(name, ids) { this.presets = this.presets.filter((p) => p.name !== name).concat([{ name, variation_ids: ids }]); }
     async deletePreset(name) { this.presets = this.presets.filter((p) => p.name !== name); }
+    async availLog() { return [{ at: new Date().toISOString(), item_name: 'SAMOSA 2PCS', available: false, source: 'Square stock count (0)' }, { at: new Date(Date.now() - 36e5).toISOString(), item_name: 'COFFEE SMALL', available: true, source: 'KDS · staff@shayona' }]; }
     async liveWaits() { return {}; }
     async uploadMedia(file, kind, itemName) {
       const url = URL.createObjectURL(file);
