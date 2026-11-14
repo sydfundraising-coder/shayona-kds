@@ -83,7 +83,7 @@
 
   function badges(o) {
     const b = [];
-    if (o.status === 'cancelled') b.push('<span class="pill badge-cancel">CANCELLED IN SQUARE</span>');
+    if (o.status === 'cancelled') b.push(`<span class="pill badge-cancel">${o.refunded ? 'REFUNDED — DON\'T MAKE' : 'CANCELLED IN SQUARE'}</span>`);
     b.push(o.is_online ? `<span class="pill badge-online big">ONLINE${o.source_name && !/^online$/i.test(o.source_name) ? ' · ' + esc(o.source_name) : ''}</span>` : '<span class="pill badge-walk big">WALK-IN</span>');
     // order-level take away / dine-in summary
     const its = (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && showPack(i));
@@ -498,7 +498,10 @@
       if (ft) { p.ftab = ft.dataset.ftab; K.savePrefs(key, p); window.scrollTo(0, 0); drawBoard(ctx); return; }
       onAction(e, ctx);
     };
-    K.$('#banner').onclick = (e) => { if (e.target.closest('[data-act="shelf"]')) onAction(e, ctx); };   // event station pickup shelf
+    K.$('#banner').onclick = (e) => {
+      if (e.target.closest('[data-act="shelf"]')) return onAction(e, ctx);   // event station pickup shelf
+      if (e.target.closest('[data-refack]')) { refundAck(ctx, true); drawBoard(ctx); }   // refund alert seen
+    };
     startOverlay(ctx);
     drawBoard(ctx);
     clearInterval(K._undoTick); K._undoTick = setInterval(() => { if (K.curCtx === ctx) paintUndo(ctx); }, 5000);
@@ -593,6 +596,7 @@
         ? `<div class="banner offline-banner">📴 <b>BACKUP MODE</b> — the main database is down. Screens are linked through the backup and new orders come straight from Square. ${q ? `${q} push${q > 1 ? 'es' : ''} will be saved to the database when it's back.` : ''}</div>`
         : `<div class="banner offline-banner">📴 <b>OFFLINE</b> — finish the orders on screen (saved ${esc(at)}). New orders won't show until the connection is back. ${q ? `<b>${q}</b> push${q > 1 ? 'es' : ''} saved on this tablet — sent automatically when back online.` : 'Pushes are saved on this tablet and sent automatically.'}</div>`;
     } else if (!st.connected) banner += '<div class="banner">⚠ Connection lost — retrying. New orders may be delayed.</div>';
+    banner += refundHtml(ctx, kind, station);
     if (kind === 'station' && station && station.hands_over) banner += shelfHtml(station);
     K.$('#banner').innerHTML = banner;
 
@@ -685,6 +689,39 @@
 
   // ------------------------------------------------------------------ actions
   const findItem = (id) => st.items.find((i) => i.id === id);
+  // ------------------------------------------------------------------ refund alerts
+  // Items refunded in Square in the last 30 minutes that this screen deals with, until someone taps OK here.
+  const refundKey = (ctx) => 'kds.refack.' + ctx.key;
+  function refundAlerts(ctx, kind, station) {
+    const cut = Date.now() - 30 * 60e3;
+    let seen = []; try { seen = JSON.parse(localStorage.getItem(refundKey(ctx)) || '[]'); } catch (_) {}
+    const out = [];
+    for (const it of st.items) {
+      if (!it.refunded || !it.refunded_at || new Date(it.refunded_at) < cut) continue;
+      const o = st.orders.find((x) => x.id === it.order_id); if (!o) continue;
+      if (o.completed_at && new Date(o.completed_at) < new Date(it.refunded_at)) continue;   // already collected before the refund
+      const mine = kind === 'station' ? station && it.station_id === station.id
+        : kind === 'window' ? !it.skip_window && !it.hand_over && (it.station_id || it.no_prep) : !it.hand_over;
+      if (!mine) continue;
+      const sig = it.id + ':' + it.refunded;
+      out.push({ it, o, sig, seen: seen.includes(sig) });
+    }
+    return out;
+  }
+  function refundAck(ctx, all) {
+    const list = refundAlerts(ctx, ctx.kind, ctx.station);
+    try { localStorage.setItem(refundKey(ctx), JSON.stringify(list.map((a) => a.sig).slice(-200))); } catch (_) {}
+  }
+  function refundHtml(ctx, kind, station) {
+    const list = refundAlerts(ctx, kind, station).filter((a) => !a.seen);
+    if (!list.length) { ctx.refundSeen = new Set(); return ''; }
+    const fresh = list.some((a) => !(ctx.refundSeen || new Set()).has(a.sig));
+    ctx.refundSeen = new Set(list.map((a) => a.sig));
+    if (fresh && ctx.p && ctx.p.sound !== false) K.beep('late', ctx.p.vol);
+    return `<div class="banner refund-banner"><span class="rf-h">↩ REFUNDED — don't make / don't hand over:</span>
+      ${list.map((a) => `<span class="rf-it"><b>${a.it.refunded}× ${esc(a.it.item_name)}${a.it.variation_name ? ' · ' + esc(a.it.variation_name) : ''}</b> ${esc(ono(a.o))}${a.o.refunded ? ' (whole order)' : ''}</span>`).join('')}
+      <button class="btn rf-ok" data-refack>OK, seen</button></div>`;
+  }
   // event station that hands over to customers: what's cooked and waiting on the shelf, per order + totals per item
   function shelfItems(o, stationId) {
     return (st.itemsByOrder.get(o.id) || []).filter((i) => !i.removed && i.hand_over && i.station_id === stationId && i.qty_window > i.qty_front);

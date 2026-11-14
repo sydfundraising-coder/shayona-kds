@@ -697,3 +697,9 @@ body.alerting::after{content:'';position:fixed;inset:0;border:10px solid var(--a
 .shelf-no{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:800;font-size:1.15em}
 .shelf-its{font-weight:600;line-height:1.3}
 .shelf-go{margin-top:2px;background:var(--ok);color:#06210f;border-radius:8px;padding:6px 8px;font-weight:800;text-align:center}
+/* v54 — refund alert */
+.banner.refund-banner{background:#8a1c1c;color:#fff;border-color:#c43b3b;font-size:1.08em;gap:8px 12px}
+.refund-banner .rf-h{font-weight:900;letter-spacing:.3px}
+.refund-banner .rf-it{background:rgba(255,255,255,.14);border-radius:8px;padding:3px 10px}
+.refund-banner b{color:#fff}
+.refund-banner .rf-ok{margin-left:auto;background:#fff;color:#8a1c1c;font-weight:800;border-color:#fff}
