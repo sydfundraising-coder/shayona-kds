@@ -100,6 +100,7 @@
 <script src="js/demo-menu.js?v=20261009a"></script>
 <script src="js/menu-feed.js?v=20261009a"></script>
 <script src="js/auto-update.js?v=20261009a"></script>
+<script src="js/notice-timer.js?v=20261114b"></script>
 </head>
 <body>
 <div class="stage">
@@ -294,13 +295,7 @@ if(document.fonts&&document.fonts.ready){document.fonts.ready.then(refit);}
 async function pollNotice(){
   try{
     const n=await fetch('/api/notice',{cache:'no-store'}).then(r=>r.json());
-    const el=document.getElementById('notice');
-    if(n&&n.active){
-      document.getElementById('nTitle').textContent=n.title||'We are closed';
-      document.getElementById('nMsg').textContent=n.message||'';
-      document.getElementById('nHours').hidden = !n.hours;
-      el.hidden=false;
-    }else{ el.hidden=true; }
+    window.KDS_NOTICE.apply(n);   // shows the warning strip / notice at the right times (js/notice-timer.js)
   }catch(e){/* keep last state */}
 }
 pollNotice();setInterval(pollNotice,8000);

@@ -345,11 +345,12 @@
       </div>
       <div class="card"><h2 style="margin-top:0">Screen notice</h2>
         <p class="muted" style="font-size:.88em">Full-screen message on the TV menu and slideshow.
-        ${n.active ? `<br><b style="color:var(--warn)">Showing now: ${esc(n.title)}</b>` : '<br>No notice showing.'}
+        ${noticeStatus(n)}
         <br><span style="font-size:.95em"><b>On a Break</b> and <b>Closed for the day</b> also switch items to sold out in Square (same as the buttons on <i>Items &amp; availability</i>).
         ${pauseState()?.mode === 'break' ? '<br><b style="color:var(--warn)">On break now — Clear (reopen) switches the same items back on.</b>' : pauseState()?.mode === 'closed' ? '<br><b style="color:var(--late)">Closed now — Clear (reopen) only takes the notice down; switch items on yourself.</b>' : ''}</span></p>
         <div class="row" style="flex-wrap:wrap"><button class="btn" data-notice="break">On a Break</button><button class="btn" data-notice="aarti">Aarti</button>
           <button class="btn" data-notice="closed">Closed for the day</button><button class="btn" data-notice="custom">Custom…</button>
+          <button class="btn primary" data-notice="schedule">⏰ Schedule with warning…</button>
           <button class="btn ok" data-notice="clear">Clear (reopen)</button></div>
       </div>
       <div class="card"><h2 style="margin-top:0">Wait times</h2>
@@ -389,6 +390,7 @@
           const fn = k === 'break' ? startBreak : k === 'closed' ? closeDay : p.mode === 'break' ? endBreak : markOpen;
           await runPause(fn); tabScreens(); return;
         }
+        if (k === 'schedule') return scheduleNotice(setting);
         if (k === 'clear') return setting('menu_notice', { active: false, title: '', message: '', hours: false }, 'Notice cleared — screens reopened');
         if (k === 'custom') {
           return K.modal('Custom notice', `<div class="field"><label>Title</label><input id="nt" maxlength="120" placeholder="We'll be back at 5pm"></div>
@@ -419,6 +421,58 @@
         tabScreens();
       }
     };
+  }
+
+  // ---------- timed notice: warning strip N minutes before the counter closes, notice while closed, gone at reopening
+  const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  function noticeStatus(n) {
+    if (!n.active) return '<br>No notice showing.';
+    if (n.start_at) {
+      const now = Date.now(), st0 = Date.parse(n.start_at), end = n.end_at && Date.parse(n.end_at), w = (n.warn_min ?? 10) * 60e3;
+      if (end && now >= end) return '<br>No notice showing (the last scheduled one has ended).';
+      const when = `warning from ${hhmm(st0 - w)}, closes ${hhmm(n.start_at)}${end ? `, reopens ${hhmm(n.end_at)}` : ''}`;
+      return `<br><b style="color:var(--warn)">${now < st0 - w ? 'Scheduled' : now < st0 ? 'Warning showing now' : 'Showing now'}: ${esc(n.title)}</b> <span>(${when})</span>`;
+    }
+    return `<br><b style="color:var(--warn)">Showing now: ${esc(n.title)}</b>`;
+  }
+  function scheduleNotice(setting) {
+    const KINDS = {
+      aarti: { label: 'Aarti', warn: 'Counter closes for Aarti', ...NOTICES.aarti },
+      break: { label: 'Short break', warn: 'Counter closes for a short break', ...NOTICES.break },
+      closed: { label: 'Closed for the day', warn: 'Counter closes for the day', ...NOTICES.closed },
+      custom: { label: 'Custom…', warn: 'Counter closes', title: '', message: '', hours: false },
+    };
+    const pad = (x) => String(x).padStart(2, '0');
+    const in20 = new Date(Date.now() + 20 * 60e3);
+    K.modal('Schedule a notice with warning', `
+      <p class="muted" style="margin-top:0">Before the counter closes, the TV menu and slideshow show a red strip: <i>“⚠ Counter closes for Aarti in 8 min — at 6:30 pm”</i>.
+      At the closing time the full-screen notice appears, and at the reopening time it disappears by itself.</p>
+      <div class="field"><label>What for</label><select id="sk">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}</select></div>
+      <div class="field" id="sct" hidden><label>Notice title</label><input id="stt" maxlength="120" placeholder="Counter closed for cleaning"></div>
+      <div class="row"><div class="field grow"><label>Counter closes at</label><input id="ss0" type="time" value="${pad(in20.getHours())}:${pad(Math.ceil(in20.getMinutes() / 5) * 5 % 60)}"></div>
+        <div class="field grow"><label>Warn customers</label><select id="sw">${[5, 10, 15, 20, 30].map((m) => `<option value="${m}" ${m === 10 ? 'selected' : ''}>${m} min before</option>`).join('')}</select></div>
+        <div class="field grow" id="sre"><label>Reopens at (optional)</label><input id="ss1" type="time"></div></div>
+      <label class="row" style="margin-bottom:6px"><input type="checkbox" id="sh"> Also show our opening hours on the notice</label>
+      <div class="actions"><button class="btn" id="sx">Cancel</button><button class="btn primary" id="sok">Schedule</button></div>`, (w, close) => {
+      const sync = () => { const k = K.$('#sk', w).value; K.$('#sct', w).style.display = k === 'custom' ? '' : 'none'; K.$('#sre', w).style.display = k === 'closed' ? 'none' : ''; K.$('#sh', w).checked = !!KINDS[k].hours; };
+      K.$('#sk', w).onchange = sync; sync();
+      K.$('#sx', w).onclick = close;
+      K.$('#sok', w).onclick = () => {
+        const k = K.$('#sk', w).value, d = KINDS[k];
+        const at = (v) => { if (!v) return null; const [h, m] = v.split(':').map(Number); const t = new Date(); t.setHours(h, m, 0, 0); return t; };
+        const t0 = at(K.$('#ss0', w).value); if (!t0) return K.toast('Pick the closing time', { error: true });
+        let t1 = k === 'closed' ? null : at(K.$('#ss1', w).value);
+        if (t1 && t1 <= t0) return K.toast('Reopening time must be after the closing time', { error: true });
+        if (t1 && t1 <= new Date()) return K.toast('That reopening time has already passed', { error: true });
+        const title = k === 'custom' ? K.$('#stt', w).value.trim() : d.title;
+        if (!title) return K.toast('Type a notice title', { error: true });
+        const warnMin = +K.$('#sw', w).value;
+        close();
+        setting('menu_notice', { active: true, title, message: k === 'custom' ? '' : t1 ? (d.message.replace(/\n?(We will reopen shortly|Back shortly)\.?/, '').trim() || d.message) : d.message,
+          hours: K.$('#sh', w).checked, start_at: t0.toISOString(), end_at: t1 ? t1.toISOString() : null, warn_min: warnMin, warn_text: d.warn },
+          t0 - Date.now() > warnMin * 60e3 ? `Scheduled — warning shows at ${hhmm(t0 - warnMin * 60e3)}` : t0 > Date.now() ? 'Warning showing now on the screens' : 'Notice showing now');
+      };
+    });
   }
 
   // ================================================================== photos & videos
