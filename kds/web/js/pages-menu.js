@@ -116,6 +116,7 @@
       try { rows = await api.availLog(); } catch (err) { return K.toast(err.message, { error: true }); }
       const t = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const why = (src) => /^KDS/.test(src) ? 'Switched in the KDS' + esc(src.replace(/^KDS/, '')) : /^Kept sold out/.test(src) ? esc(src) + ' (another app tried to add stock)'
+        : /^Put back on/.test(src) ? '🛡 ' + esc(src) + ' (mass sold-out guard)'
         : /^Square stock count/.test(src) ? esc(src.replace('Square stock count', 'Stock count changed in Square')) + ' — a sale, Square Dashboard/POS, or another app' : esc(src || 'unknown');
       K.modal('Availability history', `<p class="muted" style="margin-top:0">Last 60 days, newest first. If an item went <b>OFF</b> by itself, the reason shows here.</p>
         <div class="tablewrap" style="max-height:60vh"><table class="t"><tbody>${rows.map((r) => `<tr><td style="white-space:nowrap">${esc(t(r.at))}</td><td><b>${esc(r.item_name || r.variation_id)}</b></td>
@@ -130,7 +131,7 @@
         const ids = menuItems().filter((c) => boardCat(c) === bulk.dataset.cat && c.available !== on).map((c) => c.variation_id);
         if (!ids.length) return K.toast('Nothing to change');
         if (!(await K.confirm(`Turn ${on ? 'ON' : 'OFF'} ${ids.length} item(s) in ${esc(bulk.dataset.cat)}?`, 'This updates Square, the kitchen screens and the TV menu.', on ? 'Turn on' : 'Turn off'))) return;
-        await runAvailability(ids.map((id) => ({ variation_id: id, available: on })));
+        await runAvailability(ids.map((id) => ({ variation_id: id, available: on })), false, `All ${on ? 'on' : 'off'} · ${bulk.dataset.cat}`);
         await afterManual(ids, on);
         draw(); return;
       }
@@ -141,7 +142,7 @@
         if (act === 'avail') {
           if (b.classList.contains('busy')) return; b.classList.add('busy');
           const on = !c.available;
-          await runAvailability([{ variation_id: id, available: on }]);
+          await runAvailability([{ variation_id: id, available: on }], false, 'Menu control switch');
           await afterManual([id], on);
         } else if (act === 'jain') { await api.setMenuFlags([id], { jain: !c.jain }); patchLocal([id], { jain: !c.jain }); }
         else if (act === 'new') { await api.setMenuFlags([id], { is_new: !c.is_new }); patchLocal([id], { is_new: !c.is_new }); }
@@ -170,6 +171,7 @@
       catch (err) { K.toast(err.message, { error: true }); }
     };
     K.$('#mpause').onclick = async (e) => {
+      const rk = e.target.closest('[data-rgok]'); if (rk) { try { localStorage.setItem('kds.rg.seen', rk.dataset.rgok); } catch (_) {} draw(); return; }
       const b = e.target.closest('[data-svc]'); if (!b) return;
       await runPause({ break: startBreak, back: endBreak, close: closeDay, open: markOpen, rezero: reZero }[b.dataset.svc]);
       draw();
@@ -220,9 +222,16 @@
         ${crept.length ? `<span class="svc-warn">⚠ ${crept.length} item${crept.length === 1 ? ' has' : 's have'} stock in Square again (${esc(crept.slice(0, 4).map((c) => c.item_name).join(', '))}${crept.length > 4 ? '…' : ''}) <button class="btn sm svc-fix" data-svc="rezero">Set back to 0</button></span>` : ''}<span>Everything is sold out. To open, switch items on below — <b>All on</b> per category, or apply a preset under <i>TV screens, notices &amp; presets</i>.</span></div>
         <div class="svc-btns"><button class="btn" data-svc="open">We're open — hide this</button></div></div>`;
     }
+    const rg = st.cfg.settings && st.cfg.settings.reset_guard_log;
+    let rgSeen = ''; try { rgSeen = localStorage.getItem('kds.rg.seen') || ''; } catch (_) {}
+    if (rg && rg.at && Date.now() - Date.parse(rg.at) < 12 * 3600e3 && rgSeen !== rg.at) {
+      el.insertAdjacentHTML('afterbegin', `<div class="svc svc-break" style="margin-bottom:10px"><div class="svc-txt"><b>🛡 At ${esc(hm(rg.at))} something outside the KDS set ${rg.count} items to sold out at once — the KDS put them back on.</b>
+        <span>Usually another app connected to Square re-counting stock. Items: ${esc((rg.items || []).slice(0, 8).join(', '))}${(rg.items || []).length > 8 ? '…' : ''}. Tap 🕘 History for details.</span></div>
+        <div class="svc-btns"><button class="btn" data-rgok="${esc(rg.at)}">OK</button></div></div>`);
+    }
     const g = st.cfg.settings && st.cfg.settings.pause_guard;
     if (p && g && g.since === p.at && g.count) {
-      el.querySelector('.svc-txt').insertAdjacentHTML('beforeend', `<span class="svc-guard">🛡 Stopped ${g.count} stock top-up${g.count === 1 ? '' : 's'} from other apps while ${p.mode === 'break' ? 'on break' : 'closed'} (${esc((g.items || []).slice(0, 4).join(', '))}${(g.items || []).length > 4 ? '…' : ''}) — last at ${esc(hm(g.last))}</span>`);
+      el.querySelector('.svc:last-child .svc-txt').insertAdjacentHTML('beforeend', `<span class="svc-guard">🛡 Stopped ${g.count} stock top-up${g.count === 1 ? '' : 's'} from other apps while ${p.mode === 'break' ? 'on break' : 'closed'} (${esc((g.items || []).slice(0, 4).join(', '))}${(g.items || []).length > 4 ? '…' : ''}) — last at ${esc(hm(g.last))}</span>`);
     }
     el.querySelectorAll('button').forEach((x) => (x.disabled = pauseBusy));
   }
@@ -265,14 +274,14 @@
     setWorking('Starting break…');
     await savePause({ mode: 'break', at: new Date().toISOString(), ids, by: api.user?.email || null });   // remember the list first
     if (ok.notice) await setNotice('break', ok);
-    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false }))) : { failed: [] };
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), false, 'Start break') : { failed: [] };
   }
   async function endBreak() {
     const p = pauseState(); if (!p || p.mode !== 'break') return;
     const ids = toRestore(p);
     if (!(await K.confirm('Back from break?', `<b>${ids.length}</b> item${ids.length === 1 ? '' : 's'} will be switched back on — the same ones that were on before the break.`, 'Turn them on'))) return;
     setWorking('Coming back from break…');
-    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: true }))) : { failed: [] };
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: true })), false, 'Back from break') : { failed: [] };
     const failed = (res.failed || []).map((f) => f.variation_id).filter((id) => ids.includes(id));
     if (failed.length) { await savePause({ ...p, ids: failed }); K.toast(`${failed.length} item(s) still to switch on — tap Back from break again`, { error: true }); return; }
     await savePause({ mode: null, last: { mode: 'break', at: p.at, ended: new Date().toISOString() } });
@@ -290,13 +299,13 @@
     setWorking('Closing for the day…');
     await savePause({ mode: 'closed', at: new Date().toISOString(), by: api.user?.email || null });
     if (ok.notice) await setNotice('closed', ok);
-    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true) : { failed: [] };
+    const res = ids.length ? await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true, 'Close for the day') : { failed: [] };
   }
   async function reZero() {
     const ids = menuItems().filter((c) => c.available || (c.stock_qty != null && Number(c.stock_qty) > 0)).map((c) => c.variation_id);
     if (!ids.length) return;
     setWorking('Setting stock back to 0…');
-    const res = await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true);
+    const res = await runAvailability(ids.map((id) => ({ variation_id: id, available: false })), true, 'Set back to 0');
     if (!res.failed?.length) K.toast(`${ids.length} item(s) back to 0 in Square`);
   }
   async function markOpen() {
@@ -315,8 +324,8 @@
   }
   K.menuPause = pauseState;
 
-  async function runAvailability(changes, force) {
-    const res = await api.setAvailabilityMany(changes, force);
+  async function runAvailability(changes, force, reason) {
+    const res = await api.setAvailabilityMany(changes, force, reason);
     const failedIds = new Set((res.failed || []).map((f) => f.variation_id));
     changes.forEach((c) => { if (!failedIds.has(c.variation_id)) st.cfg.catalog.filter((x) => x.variation_id === c.variation_id).forEach((x) => { x.available = c.available; if ('stock_qty' in x) x.stock_qty = c.available ? Math.max(1, Number(x.stock_qty) || 1000) : 0; }); });
     if (res.failed?.length) {
@@ -417,7 +426,7 @@
         const flips = changes.filter((c) => st.cfg.catalog.find((x) => x.variation_id === c.variation_id).available !== c.available).length;
         if (!(await K.confirm(`Apply "${esc(p.name)}"?`, `${p.variation_ids.length} items on, everything else off. <b>${flips}</b> item(s) will change in Square.`, 'Apply preset'))) return;
         pb.disabled = true; pb.textContent = 'Applying…';
-        try { await runAvailability(changes); await afterManual(p.variation_ids, true); } catch (err) { K.toast(err.message, { error: true }); }
+        try { await runAvailability(changes, false, 'Preset: ' + p.name); await afterManual(p.variation_ids, true); } catch (err) { K.toast(err.message, { error: true }); }
         tabScreens();
       }
     };

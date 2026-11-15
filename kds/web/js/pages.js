@@ -318,6 +318,11 @@
         <option value="paid" ${(s.require_payment || 'paid') !== 'any' ? 'selected' : ''}>Only once the payment is approved (recommended)</option>
         <option value="any" ${s.require_payment === 'any' ? 'selected' : ''}>As soon as the order is made, paid or not</option></select>
         <div class="muted" style="font-size:.85em;margin-top:4px">A declined card means nothing reaches the screens until the customer pays another way. Online orders always come through. Choose "paid or not" only if you send open tickets to the kitchen before payment.</div></div>
+      <h2>Menu protection</h2>
+      <div class="field"><label>If another app sets many items to sold out at once</label><select data-k="reset_guard" data-type="str">
+        <option value="on" ${s.reset_guard !== 'off' ? 'selected' : ''}>Put them back on automatically (recommended)</option>
+        <option value="off" ${s.reset_guard === 'off' ? 'selected' : ''}>Leave them sold out</option></select>
+        <div class="muted" style="font-size:.85em;margin-top:4px">When 5 or more items with a full count drop to 0 within 3 minutes and it wasn't done in the KDS, it's not sales — the KDS restores them. Single items and everything done in Menu control (breaks, closing, presets) are never undone.</div></div>
       <h2>Online orders</h2>
       <div class="field"><label>Order sources treated as ONLINE (comma separated, matched in the Square source name)</label><input data-k="online_sources" data-type="list" value="${list('online_sources')}"></div>
       <h2>Timers</h2>
